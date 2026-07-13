@@ -4,6 +4,8 @@ from app.core.config import settings
 from app.routers import auth, products, categories, cart, orders, admin
 from app.core.database import engine
 from app.models.base import Base
+from app.routers import telegram
+from app.routers import websocket
 
 app = FastAPI(title="TeleShop API")
 
@@ -26,3 +28,5 @@ app.include_router(categories.router, prefix="/api")
 app.include_router(cart.router, prefix="/api")
 app.include_router(orders.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+app.include_router(telegram.router, prefix="/api")
+app.include_router(websocket.router, prefix="/api")

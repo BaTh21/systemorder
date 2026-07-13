@@ -1,9 +1,8 @@
+# app/models/order.py
 from sqlalchemy import Column, String, Text, Numeric, Integer, ForeignKey, JSON, Enum as SQLEnum
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models.base import Base, TimestampMixin
 import enum
-import uuid
 
 class OrderStatus(str, enum.Enum):
     pending = "pending"
@@ -17,8 +16,8 @@ class OrderStatus(str, enum.Enum):
 
 class Order(Base, TimestampMixin):
     __tablename__ = "orders"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True) 
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  
     status = Column(SQLEnum(OrderStatus), default=OrderStatus.pending)
     subtotal = Column(Numeric(10,2))
     shipping_fee = Column(Numeric(10,2))
@@ -37,7 +36,7 @@ class Order(Base, TimestampMixin):
 class OrderItem(Base, TimestampMixin):
     __tablename__ = "order_items"
     id = Column(Integer, primary_key=True)
-    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"))
+    order_id = Column(Integer, ForeignKey("orders.id"))
     product_id = Column(Integer, ForeignKey("products.id"))
     variant_id = Column(Integer, ForeignKey("product_variants.id"), nullable=True)
     product_name_snapshot = Column(String, nullable=False)

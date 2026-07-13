@@ -1,3 +1,4 @@
+# app/core/deps.py
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,8 +19,12 @@ async def get_current_user(
         user_id = payload.get("sub")
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")
+        user_id = int(user_id)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid user ID format")
     except Exception:
         raise HTTPException(status_code=401, detail="Could not validate credentials")
+    
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")

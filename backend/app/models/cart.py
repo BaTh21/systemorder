@@ -1,12 +1,12 @@
+# app/models/cart.py
 from sqlalchemy import Column, Integer, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models.base import Base, TimestampMixin
 
 class CartItem(Base, TimestampMixin):
     __tablename__ = "cart_items"
     id = Column(Integer, primary_key=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     variant_id = Column(Integer, ForeignKey("product_variants.id"), nullable=True)
     quantity = Column(Integer, default=1)
