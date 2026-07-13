@@ -18,5 +18,3 @@ class Settings(BaseSettings):
         def parse_env_var(cls, field_name: str, raw_val: str):
             return raw_val.strip() if isinstance(raw_val, str) else raw_val
 settings = Settings()
-print(f"SECRET_KEY loaded: '{settings.SECRET_KEY}'")
-print(f"SECRET_KEY length: {len(settings.SECRET_KEY)}")
