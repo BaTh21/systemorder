@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card,
-  CardMedia,
   CardContent,
   CardActions,
   Typography,
@@ -23,7 +22,7 @@ import {
 } from '@mui/icons-material';
 import { useCart } from '../../contexts/CartContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { getImageUrl, getPlaceholderImage } from '../../utils/imageHelper';
+import ImageWithFallback from '../common/ImageWithFallback';
 
 const ProductCard = ({ product, variant = 'grid' }) => {
   const navigate = useNavigate();
@@ -31,13 +30,10 @@ const ProductCard = ({ product, variant = 'grid' }) => {
   const { user } = useAuth();
   const [isHovered, setIsHovered] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
-  const [imageError, setImageError] = useState(false);
 
-  // Get primary image
+  // Get primary image URL directly
   const primaryImage = product.images?.find(img => img.is_primary) || product.images?.[0];
-  const imageUrl = imageError || !primaryImage?.image_url
-    ? getPlaceholderImage()
-    : getImageUrl(primaryImage.image_url);
+  const imageUrl = primaryImage?.image_url || null;
 
   // Calculate discounted price
   const discountedPrice = product.discount_percent > 0
@@ -91,15 +87,11 @@ const ProductCard = ({ product, variant = 'grid' }) => {
           }}
           onClick={handleViewDetails}
         >
-          <CardMedia
-            component="img"
-            sx={{ height: '100%', objectFit: 'cover' }}
-            image={imageUrl}
+          <ImageWithFallback
+            src={imageUrl}
             alt={product.name}
-            onError={(e) => {
-              setImageError(true);
-              e.target.src = getPlaceholderImage();
-            }}
+            height="100%"
+            objectFit="cover"
           />
           {product.discount_percent > 0 && (
             <Chip
@@ -196,16 +188,19 @@ const ProductCard = ({ product, variant = 'grid' }) => {
       onMouseLeave={() => setIsHovered(false)}
     >
       {/* Image */}
-      <Box sx={{ position: 'relative', cursor: 'pointer', overflow: 'hidden' }} onClick={handleViewDetails}>
-        <CardMedia
-          component="img"
-          height="220"
-          image={imageUrl}
+      <Box 
+        sx={{ 
+          position: 'relative', 
+          cursor: 'pointer', 
+          overflow: 'hidden',
+          height: 220,
+        }} 
+        onClick={handleViewDetails}
+      >
+        <ImageWithFallback
+          src={imageUrl}
           alt={product.name}
-          onError={(e) => {
-            setImageError(true);
-            e.target.src = getPlaceholderImage();
-          }}
+          height={220}
           sx={{
             transition: 'transform 0.3s ease',
             transform: isHovered ? 'scale(1.05)' : 'scale(1)',
@@ -217,7 +212,7 @@ const ProductCard = ({ product, variant = 'grid' }) => {
           <Box sx={{
             position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)',
             display: 'flex', gap: 1, bgcolor: 'rgba(255,255,255,0.95)',
-            borderRadius: 2, p: 0.5, boxShadow: 2,
+            borderRadius: 2, p: 0.5, boxShadow: 2, zIndex: 1,
           }}>
             <Tooltip title="Add to Cart">
               <IconButton size="small" color="primary" onClick={handleAddToCart}>
@@ -244,7 +239,7 @@ const ProductCard = ({ product, variant = 'grid' }) => {
             label={`-${product.discount_percent}%`}
             color="error"
             size="small"
-            sx={{ position: 'absolute', top: 10, left: 10, fontWeight: 'bold' }}
+            sx={{ position: 'absolute', top: 10, left: 10, fontWeight: 'bold', zIndex: 1 }}
           />
         )}
 
@@ -254,7 +249,7 @@ const ProductCard = ({ product, variant = 'grid' }) => {
             label={`Only ${product.stock} left`}
             color="warning"
             size="small"
-            sx={{ position: 'absolute', top: 10, right: 10 }}
+            sx={{ position: 'absolute', top: 10, right: 10, zIndex: 1 }}
           />
         )}
 
@@ -263,6 +258,7 @@ const ProductCard = ({ product, variant = 'grid' }) => {
           <Box sx={{
             position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
             bgcolor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1,
           }}>
             <Chip label="Out of Stock" color="error" size="medium" sx={{ fontWeight: 'bold' }} />
           </Box>
@@ -306,8 +302,13 @@ const ProductCard = ({ product, variant = 'grid' }) => {
           <Rating value={4} readOnly size="small" />
           <Typography variant="caption" color="text.secondary">(24)</Typography>
         </Box>
-        {product.category?.name && (
-          <Chip label={product.category.name} size="small" variant="outlined" sx={{ mt: 1, fontSize: '0.7rem' }} />
+        {product.category && (
+          <Chip
+            label={typeof product.category === 'object' ? product.category.name : 'Unknown'}
+            size="small"
+            variant="outlined"
+            sx={{ mt: 1, fontSize: '0.7rem' }}
+          />
         )}
       </CardContent>
 

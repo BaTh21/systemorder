@@ -1,3 +1,4 @@
+// src/pages/ProductsPage.jsx - Update the product rendering part
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
@@ -63,6 +64,9 @@ const ProductsPage = () => {
       });
       
       const response = await api.get('/products', { params });
+      console.log('📦 Products response:', response.data);
+      console.log('📸 First product images:', response.data.items?.[0]?.images);
+      
       setProducts(response.data.items || []);
       setTotalPages(Math.ceil((response.data.total || 0) / (response.data.limit || 12)));
       setTotalProducts(response.data.total || 0);

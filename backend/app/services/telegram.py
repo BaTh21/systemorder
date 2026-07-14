@@ -1,6 +1,7 @@
 # app/services/telegram.py
 from fastapi import Path
 import httpx
+from pathlib import Path as PathLib 
 from app.core.config import settings
 from app.core.database import async_session
 from sqlalchemy import select
@@ -42,12 +43,10 @@ async def send_order_notification_to_admin(order_id: str):
     """Send new order notification to admin - runs in background"""
     print(f"\n🔔 [Background] Admin notification for Order #{order_id}")
     
-    # Create a NEW session for this background task
     from app.core.database import async_session as create_session
     
     async with create_session() as db:
         try:
-            # Eagerly load ALL needed relationships
             result = await db.execute(
                 select(Order)
                 .options(
@@ -67,7 +66,6 @@ async def send_order_notification_to_admin(order_id: str):
                 print(f"   ❌ User not found")
                 return
             
-            # Build items text - NOW it's safe because we eagerly loaded items
             items_text = ""
             for item in order.items:
                 items_text += f"• {item.quantity}x {item.product_name_snapshot} - ${item.total_price}\n"
@@ -128,17 +126,31 @@ async def send_order_confirmation_to_customer(order_id: str):
 ✅ <b>Order Confirmed!</b>
 
 <b>Order ID:</b> #{order.id}
-<b>Status:</b> Pending Review
 <b>Total:</b> ${order.total}
-<b>Payment Method:</b> {order.payment_method or 'Bank Transfer'}
 
-We'll notify you of any status changes.
+<b>💰 Payment Instructions:</b>
 
-Thank you for shopping with TeleShop! 🛍️
+Please transfer <b>${order.total}</b> to:
+
+🏦 <b>Bank:</b> {settings.BANK_NAME}
+👤 <b>Account Name:</b> {settings.BANK_ACCOUNT_NAME}
+🔢 <b>Account Number:</b> <code>{settings.BANK_ACCOUNT_NUMBER}</code>
+
+<b>Steps:</b>
+1. Transfer the exact amount
+2. Take screenshot of confirmation
+3. Upload on the website
+
+<i>Order will be processed after payment verification.</i>
 """
             
             print(f"   📤 Sending to customer: {user.telegram_chat_id}")
             await send_telegram_message(user.telegram_chat_id, message)
+            
+            # Send QR code if available
+            qr_path = PathLib(settings.QR_CODE_URL.lstrip('/'))
+            if qr_path.exists():
+                await send_telegram_photo(user.telegram_chat_id, str(qr_path))
             
         except Exception as e:
             print(f"   ❌ Error: {e}")
@@ -199,60 +211,7 @@ async def send_order_status_update(order_id: int, new_status: str):
             print(f"   ❌ Error: {e}")
             import traceback
             traceback.print_exc()
-            
-async def send_order_confirmation_to_customer(order_id: str):
-    """Send order confirmation to customer with payment details"""
-    from app.core.database import async_session as create_session
-    
-    async with create_session() as db:
-        try:
-            result = await db.execute(
-                select(Order)
-                .options(selectinload(Order.user))
-                .where(Order.id == int(order_id))
-            )
-            order = result.scalars().first()
-            
-            if not order or not order.user:
-                return
-            
-            user = order.user
-            
-            if not user.telegram_chat_id:
-                return
-            
-            message = f"""
-✅ <b>Order Confirmed!</b>
 
-<b>Order ID:</b> #{order.id}
-<b>Total:</b> ${order.total}
-
-<b>💰 Payment Instructions:</b>
-
-Please transfer <b>${order.total}</b> to:
-
-🏦 <b>Bank:</b> {settings.BANK_NAME}
-👤 <b>Account Name:</b> {settings.BANK_ACCOUNT_NAME}
-🔢 <b>Account Number:</b> <code>{settings.BANK_ACCOUNT_NUMBER}</code>
-
-<b>Steps:</b>
-1. Transfer the exact amount
-2. Take screenshot of confirmation
-3. Upload on the website
-
-<i>Order will be processed after payment verification.</i>
-"""
-            
-            # Send text message first
-            await send_telegram_message(user.telegram_chat_id, message)
-            
-            # Send QR code image if available
-            qr_path = Path(settings.QR_CODE_URL.lstrip('/'))
-            if qr_path.exists():
-                await send_telegram_photo(user.telegram_chat_id, str(qr_path))
-                
-        except Exception as e:
-            print(f"Error: {e}")
 
 async def send_telegram_photo(chat_id: str, photo_path: str, caption: str = "📱 Scan QR code to pay"):
     """Send photo/QR code to Telegram"""

@@ -1,6 +1,7 @@
 # app/routers/admin.py
 from datetime import datetime
 
+import cloudinary
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -21,23 +22,33 @@ from sqlalchemy.orm import selectinload
 from app.services.telegram import send_order_status_update
 from app.services.cloudinary_service import upload_image
 
+
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(admin_required)])
 
 @router.get("/orders")
 async def get_all_orders(
     status: Optional[OrderStatus] = None, 
+    page: int = 1,
+    limit: int = 50,
     db: AsyncSession = Depends(get_db)
 ):
     """Get all orders with items eagerly loaded"""
     query = select(Order).options(selectinload(Order.items))
     if status:
         query = query.where(Order.status == status)
+    
+    # Get total count
+    count_query = select(func.count()).select_from(query.subquery())
+    total = (await db.execute(count_query)).scalar()
+    
+    # Apply pagination
     query = query.order_by(Order.created_at.desc())
+    query = query.offset((page - 1) * limit).limit(limit)
     
     result = await db.execute(query)
     orders = result.scalars().all()
     
-    # Build response without lazy loading
+    # Build response
     orders_list = []
     for order in orders:
         items_list = []
@@ -64,7 +75,13 @@ async def get_all_orders(
             "items": items_list
         })
     
-    return orders_list
+    return {
+        "items": orders_list,
+        "total": total or 0,
+        "page": page,
+        "limit": limit,
+        "total_pages": max(1, ((total or 0) + limit - 1) // limit)
+    }
 
 @router.put("/orders/{order_id}/status")
 async def update_order_status(
@@ -110,7 +127,10 @@ async def admin_list_products(
     db: AsyncSession = Depends(get_db)
 ):
     """Get all products with filters for admin"""
-    query = select(Product)
+    query = select(Product).options(
+        selectinload(Product.images),      # ← ADD THIS
+        selectinload(Product.category)      # ← ADD THIS
+    )
     
     if search:
         query = query.where(Product.name.ilike(f"%{search}%"))
@@ -595,7 +615,22 @@ async def dashboard_stats(db: AsyncSession = Depends(get_db)):
 async def admin_list_categories(db: AsyncSession = Depends(get_db)):
     """Get all categories for admin"""
     result = await db.execute(select(Category).order_by(Category.name))
-    return result.scalars().all()
+    categories = result.scalars().all()
+    
+    # Return serialized data
+    return [
+        {
+            "id": cat.id,
+            "name": cat.name,
+            "slug": cat.slug,
+            "image_url": cat.image_url,
+            "parent_id": cat.parent_id,
+            "created_at": str(cat.created_at) if cat.created_at else None,
+            "updated_at": str(cat.updated_at) if cat.updated_at else None
+        }
+        for cat in categories
+    ]
+
 
 @router.post("/categories")
 async def create_category(
@@ -605,6 +640,13 @@ async def create_category(
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new category with Cloudinary image"""
+    
+    print(f"\n📁 Creating category: {name}")
+    
+    if not name or not name.strip():
+        raise HTTPException(400, "Category name is required")
+    
+    # Generate unique slug
     base_slug = slugify(name)
     slug = base_slug
     counter = 1
@@ -619,11 +661,23 @@ async def create_category(
     image_url = None
     if image and image.filename:
         try:
-            result = await upload_image(image, folder="categories", public_id=slug)
+            print(f"📤 Uploading category image to Cloudinary...")
+            print(f"   File: {image.filename}")
+            print(f"   Content type: {image.content_type}")
+            
+            result = await upload_image(
+                image, 
+                folder="categories",
+                public_id=slug
+            )
             image_url = result["url"]
-            print(f"✅ Category image uploaded: {image_url}")
+            print(f"✅ Cloudinary URL: {image_url}")
+            
         except Exception as e:
-            print(f"❌ Error uploading category image: {e}")
+            print(f"❌ Cloudinary upload error: {str(e)}")
+            raise HTTPException(500, f"Failed to upload image to Cloudinary: {str(e)}")
+    else:
+        print(f"ℹ️ No image provided for category")
     
     if parent_id is not None:
         parent = await db.get(Category, parent_id)
@@ -631,9 +685,9 @@ async def create_category(
             raise HTTPException(400, "Parent category not found")
     
     category = Category(
-        name=name,
+        name=name.strip(),
         slug=slug,
-        image_url=image_url,
+        image_url=image_url,  # Store Cloudinary URL
         parent_id=parent_id
     )
     
@@ -641,7 +695,17 @@ async def create_category(
     await db.commit()
     await db.refresh(category)
     
-    return category
+    print(f"✅ Category created: ID={category.id}, Image={image_url}")
+    
+    return {
+        "id": category.id,
+        "name": category.name,
+        "slug": category.slug,
+        "image_url": category.image_url,
+        "parent_id": category.parent_id,
+        "created_at": str(category.created_at),
+        "message": "Category created successfully"
+    }
 
 
 @router.put("/categories/{category_id}")
@@ -653,12 +717,16 @@ async def update_category(
     db: AsyncSession = Depends(get_db)
 ):
     """Update a category"""
+    
+    print(f"\n📁 Updating category ID: {category_id}")
+    
     category = await db.get(Category, category_id)
     if not category:
         raise HTTPException(404, "Category not found")
     
-    if name is not None:
-        category.name = name
+    # Update name and slug
+    if name is not None and name.strip():
+        category.name = name.strip()
         base_slug = slugify(name)
         slug = base_slug
         counter = 1
@@ -675,31 +743,52 @@ async def update_category(
             counter += 1
         category.slug = slug
     
+    # Update parent
     if parent_id is not None:
-        if parent_id == category_id:
+        if parent_id == 0:
+            category.parent_id = None
+        elif parent_id == category_id:
             raise HTTPException(400, "Category cannot be its own parent")
-        # Check if parent exists
-        parent = await db.get(Category, parent_id)
-        if not parent:
-            raise HTTPException(400, "Parent category not found")
-        category.parent_id = parent_id
+        else:
+            parent = await db.get(Category, parent_id)
+            if not parent:
+                raise HTTPException(400, "Parent category not found")
+            category.parent_id = parent_id
     
+    # Upload new image to Cloudinary if provided
     if image and image.filename:
-        upload_dir = Path(settings.UPLOAD_DIR) / "categories"
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        
-        file_extension = os.path.splitext(image.filename)[1]
-        file_name = f"{category.slug}{file_extension}"
-        file_path = upload_dir / file_name
-        
-        with file_path.open("wb") as buffer:
-            shutil.copyfileobj(image.file, buffer)
-        
-        category.image_url = f"/{settings.UPLOAD_DIR}/categories/{file_name}"
+        try:
+            print(f"📤 Uploading new category image to Cloudinary...")
+            print(f"   File: {image.filename}")
+            
+            result = await upload_image(
+                image,
+                folder="categories",
+                public_id=category.slug
+            )
+            category.image_url = result["url"]
+            print(f"✅ New Cloudinary URL: {result['url']}")
+            
+        except Exception as e:
+            print(f"❌ Cloudinary upload error: {str(e)}")
+            raise HTTPException(500, f"Failed to upload image: {str(e)}")
+    else:
+        print(f"ℹ️ No new image provided")
     
     await db.commit()
     await db.refresh(category)
-    return category
+    
+    print(f"✅ Category updated: ID={category.id}, Image={category.image_url}")
+    
+    return {
+        "id": category.id,
+        "name": category.name,
+        "slug": category.slug,
+        "image_url": category.image_url,
+        "parent_id": category.parent_id,
+        "message": "Category updated successfully"
+    }
+
 
 @router.delete("/categories/{category_id}")
 async def delete_category(
@@ -716,14 +805,16 @@ async def delete_category(
         select(func.count(Product.id)).where(Product.category_id == category_id)
     )
     if products_count.scalar() > 0:
-        raise HTTPException(400, "Cannot delete category with associated products. Remove or reassign products first.")
+        raise HTTPException(400, 
+            "Cannot delete category with associated products")
     
-    # Check if category has subcategories
+    # Check subcategories
     subcategories_count = await db.execute(
         select(func.count(Category.id)).where(Category.parent_id == category_id)
     )
     if subcategories_count.scalar() > 0:
-        raise HTTPException(400, "Cannot delete category with subcategories. Remove subcategories first.")
+        raise HTTPException(400, 
+            "Cannot delete category with subcategories")
     
     await db.delete(category)
     await db.commit()

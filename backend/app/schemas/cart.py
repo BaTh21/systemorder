@@ -30,3 +30,8 @@ class CartOut(BaseModel):
     
     class Config:
         from_attributes = True
+        
+class AddToCartRequest(BaseModel):
+    product_id: int
+    variant_id: Optional[int] = None
+    quantity: int = 1

@@ -4,6 +4,7 @@ import cloudinary.uploader
 import cloudinary.api
 from app.core.config import settings
 from typing import Optional
+import os
 
 # Configure Cloudinary
 cloudinary.config(
@@ -29,12 +30,16 @@ async def upload_image(file, folder: str = "products", public_id: Optional[str] 
         # Read file content
         contents = await file.read()
         
+        # Get file extension
+        file_extension = os.path.splitext(file.filename)[1] if file.filename else '.jpg'
+        
         # Upload options
         upload_options = {
             "folder": f"teleshop/{folder}",
             "resource_type": "image",
             "quality": "auto",
             "fetch_format": "auto",
+            "format": file_extension.replace('.', ''),  # Preserve original format
         }
         
         if public_id:
@@ -46,8 +51,14 @@ async def upload_image(file, folder: str = "products", public_id: Optional[str] 
             **upload_options
         )
         
+        # Return secure URL with explicit format
+        secure_url = cloudinary.CloudinaryImage(result['public_id']).build_url(
+            format=result.get('format', 'jpg'),
+            secure=True
+        )
+        
         return {
-            "url": result["secure_url"],
+            "url": secure_url,
             "public_id": result["public_id"],
             "width": result.get("width"),
             "height": result.get("height"),
@@ -56,45 +67,3 @@ async def upload_image(file, folder: str = "products", public_id: Optional[str] 
     except Exception as e:
         print(f"Cloudinary upload error: {e}")
         raise
-
-
-async def delete_image(public_id: str):
-    """
-    Delete image from Cloudinary
-    
-    Args:
-        public_id: The public ID of the image to delete
-    
-    Returns:
-        dict: Delete result
-    """
-    try:
-        result = cloudinary.uploader.destroy(public_id)
-        return result
-    except Exception as e:
-        print(f"Cloudinary delete error: {e}")
-        raise
-
-
-def get_image_url(public_id: str, transformations: Optional[str] = None):
-    """
-    Get image URL with optional transformations
-    
-    Args:
-        public_id: The public ID of the image
-        transformations: Optional transformation string (e.g., "w_300,h_300,c_fill")
-    
-    Returns:
-        str: Image URL
-    """
-    if transformations:
-        return cloudinary.CloudinaryImage(public_id).build_url(
-            transformation=transformations,
-            secure=True
-        )
-    return cloudinary.CloudinaryImage(public_id).build_url(secure=True)
-
-
-def get_thumbnail_url(public_id: str, width: int = 300, height: int = 300):
-    """Get thumbnail URL"""
-    return get_image_url(public_id, f"w_{width},h_{height},c_fill,q_auto")

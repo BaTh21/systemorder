@@ -7,6 +7,7 @@ from app.core.deps import get_current_user
 from app.core.database import get_db
 from app.models.cart import CartItem
 from app.models.product import Product, ProductImage, ProductVariant
+from app.schemas.cart import AddToCartRequest
 
 router = APIRouter(prefix="/cart", tags=["cart"])
 
@@ -74,19 +75,17 @@ async def get_cart(
 
 @router.post("/items")
 async def add_to_cart(
-    product_id: int,
-    variant_id: int = None,
-    quantity: int = 1,
+    data: AddToCartRequest,
     current_user = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Add item to cart"""
-    print(f"🛒 Add to cart: User ID={current_user.id}, Product={product_id}, Qty={quantity}")
+    print(f"🛒 Add to cart: User ID={current_user.id}, Product={data.product_id}, Qty={data.quantity}")
     
     # Validate product
-    product = await db.get(Product, product_id)
+    product = await db.get(Product, data.product_id)
     if not product:
-        raise HTTPException(400, f"Product ID {product_id} not found")
+        raise HTTPException(400, f"Product ID {data.product_id} not found")
     if not product.is_active:
         raise HTTPException(400, "Product is not available")
     
@@ -94,27 +93,27 @@ async def add_to_cart(
     result = await db.execute(
         select(CartItem).where(
             CartItem.user_id == current_user.id,
-            CartItem.product_id == product_id,
-            CartItem.variant_id == variant_id
+            CartItem.product_id == data.product_id,
+            CartItem.variant_id == data.variant_id
         )
     )
     existing_item = result.scalars().first()
     
     if existing_item:
-        existing_item.quantity += quantity
+        existing_item.quantity += data.quantity
         print(f"   Updated quantity to {existing_item.quantity}")
     else:
         cart_item = CartItem(
             user_id=current_user.id,
-            product_id=product_id,
-            variant_id=variant_id,
-            quantity=quantity
+            product_id=data.product_id,
+            variant_id=data.variant_id,
+            quantity=data.quantity
         )
         db.add(cart_item)
         print(f"   Created new cart item")
     
     await db.commit()
-    return {"message": "Added to cart", "product_id": product_id, "quantity": quantity}
+    return {"message": "Added to cart", "product_id": data.product_id, "quantity": data.quantity}
 
 @router.put("/items/{item_id}")
 async def update_cart_item(

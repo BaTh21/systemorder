@@ -38,10 +38,12 @@ export const CartProvider = ({ children }) => {
     fetchCart();
   }, [fetchCart]);
 
-  const addToCart = async (productId, variantId = null, quantity = 1) => {
+const addToCart = async (productId, variantId = null, quantity = 1) => {
     try {
-      await api.post('/cart/items', null, {
-        params: { product_id: productId, variant_id: variantId, quantity }
+      await api.post('/cart/items', {
+        product_id: productId,
+        variant_id: variantId,
+        quantity: quantity
       });
       await fetchCart();
     } catch (error) {

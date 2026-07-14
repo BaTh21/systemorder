@@ -1,43 +1,41 @@
 import os
-
 from pydantic_settings import BaseSettings
 from typing import List
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:Admin123@localhost:5432/ecommerce"
-    SECRET_KEY: str = "33982b6987efb1c72f8eae8982cd6ec9877afa0d2746583dff1c44beb7e5e8b1"
+    DATABASE_URL: str
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
-    TELEGRAM_BOT_TOKEN: str = "8702317569:AAGMTgeMDVSxcJmXcxLYK_HQYqOjUA3tcyc"
-    TELEGRAM_ADMIN_CHAT_ID: str = "1172933097"
+    TELEGRAM_BOT_TOKEN: str
+    TELEGRAM_ADMIN_CHAT_ID: str
     UPLOAD_DIR: str = "uploads"
     CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
     SERVICE_FEE_RATE: float = 0.05
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB
     
     # Cloudinary Settings
-    CLOUDINARY_CLOUD_NAME: str = "vck8ep1r"
-    CLOUDINARY_API_KEY: str = "448494694163931"
-    CLOUDINARY_API_SECRET: str = "AkCfVBDd339wasjFzhhvZmMeX-U"
+    CLOUDINARY_CLOUD_NAME: str
+    CLOUDINARY_API_KEY: str
+    CLOUDINARY_API_SECRET: str
 
     # Payment Settings
-    BANK_NAME: str = "Example Bank"
+    BANK_NAME: str = "ABA Bank"
     BANK_ACCOUNT_NAME: str = "TeleShop Inc."
-    BANK_ACCOUNT_NUMBER: str = "1234-5678-9012-3456"
-    BANK_SWIFT_CODE: str = "EXAMPLECODE"
+    BANK_ACCOUNT_NUMBER: str = "000123456789"
+    BANK_SWIFT_CODE: str = "ABAAKHPP"
     BANK_ROUTING_NUMBER: str = "021000021"
     QR_CODE_URL: str = "/uploads/payments/qr-code.png"
 
     class Config:
         env_file = ".env"
-        @classmethod
-        def parse_env_var(cls, field_name: str, raw_val: str):
-            return raw_val.strip() if isinstance(raw_val, str) else raw_val
+        env_file_encoding = "utf-8"
+        case_sensitive = True
 
 # Create settings instance
 settings = Settings()
 
-# Create upload directories after settings instance is created
+# Create upload directories
 os.makedirs(os.path.join(settings.UPLOAD_DIR, "products"), exist_ok=True)
 os.makedirs(os.path.join(settings.UPLOAD_DIR, "categories"), exist_ok=True)
 os.makedirs(os.path.join(settings.UPLOAD_DIR, "payments"), exist_ok=True)

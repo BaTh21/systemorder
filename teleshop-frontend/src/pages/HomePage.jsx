@@ -7,7 +7,6 @@ import {
   Grid,
   Card,
   CardContent,
-  CardMedia,
 } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import { useState, useEffect } from 'react';
@@ -25,7 +24,7 @@ const HomePage = () => {
   const fetchFeaturedProducts = async () => {
     try {
       const response = await api.get('/products', { params: { limit: 8 } });
-      setFeaturedProducts(response.data.items);
+      setFeaturedProducts(response.data.items || []);
     } catch (error) {
       console.error('Error fetching products:', error);
     }
@@ -34,6 +33,7 @@ const HomePage = () => {
   const fetchCategories = async () => {
     try {
       const response = await api.get('/categories');
+      console.log('📁 Categories from API:', response.data);
       setCategories(response.data.slice(0, 4));
     } catch (error) {
       console.error('Error fetching categories:', error);
@@ -82,14 +82,30 @@ const HomePage = () => {
               <Card
                 component={RouterLink}
                 to={`/products?category_id=${category.id}`}
-                sx={{ textDecoration: 'none', height: '100%' }}
+                sx={{ 
+                  textDecoration: 'none', 
+                  height: '100%',
+                  transition: 'transform 0.2s',
+                  '&:hover': { transform: 'translateY(-4px)' }
+                }}
               >
-                <CardMedia
-                  component="img"
-                  height="200"
-                  image={category.image_url || '/placeholder-category.jpg'}
-                  alt={category.name}
-                />
+                {/* Direct img tag - most reliable */}
+                <Box sx={{ height: 200, overflow: 'hidden', bgcolor: '#f0f0f0' }}>
+                  <img
+                    src={category.image_url || 'https://via.placeholder.com/400x200?text=No+Image'}
+                    alt={category.name}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                    }}
+                    onLoad={() => console.log('✅ Loaded:', category.name, category.image_url)}
+                    onError={(e) => {
+                      console.log('❌ Failed:', category.name, category.image_url);
+                      e.target.src = `https://via.placeholder.com/400x200/EEE/999?text=${encodeURIComponent(category.name)}`;
+                    }}
+                  />
+                </Box>
                 <CardContent>
                   <Typography variant="h6" align="center">
                     {category.name}
@@ -108,37 +124,59 @@ const HomePage = () => {
             Featured Products
           </Typography>
           <Grid container spacing={3}>
-            {featuredProducts.map((product) => (
-              <Grid item xs={12} sm={6} md={3} key={product.id}>
-                <Card
-                  sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}
-                >
-                  <CardMedia
-                    component="img"
-                    height="200"
-                    image={product.images?.[0]?.image_url || '/placeholder-product.jpg'}
-                    alt={product.name}
-                  />
-                  <CardContent sx={{ flexGrow: 1 }}>
-                    <Typography variant="h6" gutterBottom>
-                      {product.name}
-                    </Typography>
-                    <Typography variant="h6" color="primary">
-                      ${product.base_price}
-                    </Typography>
-                    <Button
-                      variant="contained"
-                      fullWidth
-                      component={RouterLink}
-                      to={`/products/${product.slug}`}
-                      sx={{ mt: 1 }}
-                    >
-                      View Details
-                    </Button>
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
+            {featuredProducts.map((product) => {
+              const primaryImage = product.images?.find(img => img.is_primary) || product.images?.[0];
+              const imageUrl = primaryImage?.image_url;
+              
+              return (
+                <Grid item xs={12} sm={6} md={3} key={product.id}>
+                  <Card
+                    sx={{ 
+                      height: '100%', 
+                      display: 'flex', 
+                      flexDirection: 'column',
+                      transition: 'transform 0.2s',
+                      '&:hover': { transform: 'translateY(-4px)' }
+                    }}
+                  >
+                    {/* Product Image */}
+                    <Box sx={{ height: 200, overflow: 'hidden', bgcolor: '#f0f0f0' }}>
+                      <img
+                        src={imageUrl || 'https://via.placeholder.com/400x200?text=No+Image'}
+                        alt={product.name}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                        }}
+                        onLoad={() => console.log('✅ Product loaded:', product.name)}
+                        onError={(e) => {
+                          console.log('❌ Product failed:', product.name, imageUrl);
+                          e.target.src = 'https://via.placeholder.com/400x200/EEE/999?text=No+Image';
+                        }}
+                      />
+                    </Box>
+                    <CardContent sx={{ flexGrow: 1 }}>
+                      <Typography variant="h6" gutterBottom>
+                        {product.name}
+                      </Typography>
+                      <Typography variant="h6" color="primary">
+                        ${product.base_price}
+                      </Typography>
+                      <Button
+                        variant="contained"
+                        fullWidth
+                        component={RouterLink}
+                        to={`/products/${product.slug}`}
+                        sx={{ mt: 1 }}
+                      >
+                        View Details
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              );
+            })}
           </Grid>
         </Container>
       </Box>

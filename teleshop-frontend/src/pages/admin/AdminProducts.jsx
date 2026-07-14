@@ -30,9 +30,11 @@ import {
   CardMedia,
 } from '@mui/material';
 import { Add, Edit, Delete, Image as ImageIcon } from '@mui/icons-material';
+import { getImageUrl, getPlaceholderImage } from '../../utils/imageHelper';
 import api from '../../api/axios';
 
 const AdminProducts = () => {
+  
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -130,17 +132,17 @@ const AdminProducts = () => {
 
   const handleSubmit = async () => {
     const formDataToSend = new FormData();
-    
+
     // Append basic fields
     Object.keys(formData).forEach(key => {
       if (key !== 'images' && key !== 'variants') {
         formDataToSend.append(key, formData[key]);
       }
     });
-    
+
     // Append variants as JSON
     formDataToSend.append('variants', JSON.stringify(variants));
-    
+
     // Append new images
     images.forEach((image, index) => {
       if (image instanceof File) {
@@ -250,13 +252,33 @@ const AdminProducts = () => {
               <TableRow key={product.id}>
                 <TableCell>
                   {product.images?.[0]?.image_url ? (
-                    <img
-                      src={product.images[0].image_url}
+                    <Box
+                      component="img"
+                      src={getImageUrl(product.images[0].image_url)}
                       alt={product.name}
-                      style={{ width: 50, height: 50, objectFit: 'cover', borderRadius: 4 }}
+                      onError={(e) => {
+                        e.target.src = getPlaceholderImage();
+                        e.target.onerror = null;
+                      }}
+                      sx={{
+                        width: 50,
+                        height: 50,
+                        objectFit: 'cover',
+                        borderRadius: 1,
+                      }}
                     />
                   ) : (
-                    <Box sx={{ width: 50, height: 50, bgcolor: 'grey.200', borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Box
+                      sx={{
+                        width: 50,
+                        height: 50,
+                        bgcolor: 'grey.200',
+                        borderRadius: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
                       <ImageIcon color="disabled" />
                     </Box>
                   )}
@@ -328,10 +350,10 @@ const AdminProducts = () => {
       )}
 
       {/* Create/Edit Dialog */}
-      <Dialog 
-        open={openDialog} 
-        onClose={() => setOpenDialog(false)} 
-        maxWidth="md" 
+      <Dialog
+        open={openDialog}
+        onClose={() => setOpenDialog(false)}
+        maxWidth="md"
         fullWidth
       >
         <DialogTitle>
@@ -464,7 +486,7 @@ const AdminProducts = () => {
                   onChange={handleImageUpload}
                 />
               </Button>
-              
+
               <Grid container spacing={2} sx={{ mt: 2 }}>
                 {images.map((image, index) => (
                   <Grid item xs={4} key={index}>
@@ -499,7 +521,7 @@ const AdminProducts = () => {
                   Add Variant
                 </Button>
               </Box>
-              
+
               {variants.map((variant, index) => (
                 <Grid container spacing={2} key={index} sx={{ mb: 2, p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
                   <Grid item xs={4}>
@@ -547,8 +569,8 @@ const AdminProducts = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
+          <Button
+            variant="contained"
             onClick={handleSubmit}
             disabled={!formData.name || !formData.base_price || !formData.category_id}
           >

@@ -5,18 +5,19 @@ export const getImageUrl = (imageUrl) => {
         return getPlaceholderImage();
     }
     
-    // Cloudinary URLs are already full HTTPS URLs - return as is
-    // Example: https://res.cloudinary.com/vck8ep1r/image/upload/v123/teleshop/products/...
+    // If it's already a full URL (Cloudinary, etc.), return as is
     if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
         return imageUrl;
     }
     
-    // For any remaining local paths (backward compatibility)
+    // For local development paths
+    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    
     if (imageUrl.startsWith('/')) {
-        return `http://localhost:8000${imageUrl}`;
+        return `${API_BASE_URL}${imageUrl}`;
     }
     
-    return `http://localhost:8000/${imageUrl}`;
+    return `${API_BASE_URL}/${imageUrl}`;
 };
 
 export const getPlaceholderImage = (w = 300, h = 300) => {
