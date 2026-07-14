@@ -7,7 +7,7 @@ class Product(Base, TimestampMixin):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     slug = Column(String, unique=True, index=True)
-    description = Column(Text)
+    description = Column(Text, nullable=True)
     base_price = Column(Numeric(10,2), nullable=False)
     stock = Column(Integer, default=0)
     category_id = Column(Integer, ForeignKey("categories.id"))

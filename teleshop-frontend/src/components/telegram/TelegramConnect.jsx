@@ -22,7 +22,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import api from '../../api/axios';
 
 const TelegramConnect = () => {
-  const { user } = useAuth();
+  const { user, fetchUser } = useAuth();
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
   const [openDialog, setOpenDialog] = useState(false);
@@ -49,6 +49,7 @@ const TelegramConnect = () => {
       setConnected(true);
       setSuccess('Telegram connected successfully!');
       setOpenDialog(false);
+      fetchUser(); // Refresh user data
     } catch (error) {
       setError(error.response?.data?.detail || 'Failed to connect Telegram');
     } finally {
@@ -63,11 +64,17 @@ const TelegramConnect = () => {
       setConnected(false);
       setChatId('');
       setSuccess('Telegram disconnected');
+      fetchUser(); // Refresh user data
     } catch (error) {
       setError('Failed to disconnect Telegram');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleOpenBot = () => {
+    // Open Telegram bot to get Chat ID
+    window.open('https://t.me/TeleShopBot', '_blank');
   };
 
   return (
@@ -81,8 +88,8 @@ const TelegramConnect = () => {
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {connected
-                ? 'You will receive order updates via Telegram'
-                : 'Connect Telegram to receive order updates'}
+                ? '✅ You will receive order updates via Telegram'
+                : 'Connect Telegram to get real-time order updates'}
             </Typography>
           </Box>
         </Box>
@@ -114,33 +121,50 @@ const TelegramConnect = () => {
             </Button>
           </Box>
         ) : (
-          <Button
-            variant="contained"
-            startIcon={<TelegramIcon />}
-            onClick={() => setOpenDialog(true)}
-            sx={{ bgcolor: '#0088cc', '&:hover': { bgcolor: '#006699' } }}
-          >
-            Connect Telegram
-          </Button>
+          <Box>
+            <Button
+              variant="contained"
+              startIcon={<TelegramIcon />}
+              onClick={handleOpenBot}
+              sx={{ bgcolor: '#0088cc', '&:hover': { bgcolor: '#006699' }, mb: 2, mr: 2 }}
+            >
+              Open Telegram Bot
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => setOpenDialog(true)}
+            >
+              Enter Chat ID Manually
+            </Button>
+          </Box>
         )}
 
+        {/* Manual Chat ID Dialog */}
         <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth>
           <DialogTitle>Connect Telegram</DialogTitle>
           <DialogContent>
-            <Stepper activeStep={0} orientation="vertical" sx={{ mt: 2 }}>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              <strong>How to get your Chat ID:</strong>
+            </Typography>
+            <Stepper activeStep={-1} orientation="vertical">
               <Step>
                 <StepLabel>
-                  Open Telegram and search for <strong>@userinfobot</strong>
+                  1. Open Telegram and search for <strong>@userinfobot</strong>
                 </StepLabel>
               </Step>
               <Step>
                 <StepLabel>
-                  Start the bot and send <code>/start</code>
+                  2. Click <strong>Start</strong> and send <code>/start</code>
                 </StepLabel>
               </Step>
               <Step>
                 <StepLabel>
-                  Copy your Chat ID from the bot's response
+                  3. Copy the number next to <strong>"Id"</strong>
+                </StepLabel>
+              </Step>
+              <Step>
+                <StepLabel>
+                  4. Paste it below and click Connect
                 </StepLabel>
               </Step>
             </Stepper>
@@ -151,19 +175,9 @@ const TelegramConnect = () => {
               value={chatId}
               onChange={(e) => setChatId(e.target.value)}
               sx={{ mt: 3 }}
-              helperText="Paste your Chat ID here"
-              placeholder="e.g., 123456789"
+              helperText="Example: 123456789"
+              placeholder="Enter your Chat ID"
             />
-
-            <Alert severity="info" sx={{ mt: 2 }}>
-              <Typography variant="body2">
-                <strong>How to get your Chat ID:</strong><br />
-                1. Open Telegram app<br />
-                2. Search for <code>@userinfobot</code><br />
-                3. Click Start and send <code>/start</code><br />
-                4. Copy the number next to "Id"
-              </Typography>
-            </Alert>
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setOpenDialog(false)}>Cancel</Button>

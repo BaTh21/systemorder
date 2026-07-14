@@ -24,30 +24,35 @@ export const AuthProvider = ({ children }) => {
       return;
     }
     
-    // Check if it's an old invalid token
+    // Check if token is valid JWT format
     try {
       const parts = token.split('.');
-      if (parts.length === 3) {
-        const payload = JSON.parse(atob(parts[1]));
-        console.log('Token payload:', payload);
-        
-        // Check if it's the old token with "sub": "3"
-        if (payload.sub === '3' || !payload.sub.includes('-')) {
-          console.warn('⚠️ OLD TOKEN DETECTED - Clearing...');
-          localStorage.removeItem('access_token');
-          setLoading(false);
-          return;
-        }
+      if (parts.length !== 3) {
+        console.warn('⚠️ Invalid token format - Clearing...');
+        localStorage.removeItem('access_token');
+        setLoading(false);
+        return;
       }
+      
+      // Decode payload
+      const payload = JSON.parse(atob(parts[1]));
+      console.log('Token payload:', payload);
+      
+      // Check if token is expired
+      if (payload.exp && payload.exp * 1000 < Date.now()) {
+        console.warn('⚠️ Token expired - Clearing...');
+        localStorage.removeItem('access_token');
+        setLoading(false);
+        return;
+      }
+      
+      // Token looks valid, fetch user
+      fetchUser();
     } catch (e) {
-      console.error('Invalid token format, clearing...');
+      console.error('Error parsing token, clearing...', e);
       localStorage.removeItem('access_token');
       setLoading(false);
-      return;
     }
-    
-    // Token looks valid, fetch user
-    fetchUser();
   }, []);
 
   const fetchUser = async () => {
@@ -67,11 +72,13 @@ export const AuthProvider = ({ children }) => {
     const response = await api.post('/auth/login', { email, password });
     const { access_token } = response.data;
     
-    // Verify new token
+    // Verify new token format
     try {
       const payload = JSON.parse(atob(access_token.split('.')[1]));
       console.log('✅ Login successful, user ID:', payload.sub);
-    } catch(e) {}
+    } catch(e) {
+      console.error('Invalid token received from server');
+    }
     
     localStorage.setItem('access_token', access_token);
     await fetchUser();
@@ -82,11 +89,13 @@ export const AuthProvider = ({ children }) => {
     const response = await api.post('/auth/register', userData);
     const { access_token } = response.data;
     
-    // Verify new token
+    // Verify new token format
     try {
       const payload = JSON.parse(atob(access_token.split('.')[1]));
       console.log('✅ Registration successful, user ID:', payload.sub);
-    } catch(e) {}
+    } catch(e) {
+      console.error('Invalid token received from server');
+    }
     
     localStorage.setItem('access_token', access_token);
     await fetchUser();

@@ -10,6 +10,7 @@ import {
   Drawer,
   Snackbar,
   Alert,
+  Chip,
 } from '@mui/material';
 import { FilterList } from '@mui/icons-material';
 import { useCart } from '../contexts/CartContext';

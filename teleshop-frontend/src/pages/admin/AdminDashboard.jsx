@@ -28,9 +28,16 @@ const AdminDashboard = () => {
   const fetchStats = async () => {
     try {
       const response = await api.get('/admin/dashboard');
+      console.log('Dashboard API Response:', response.data);
       setStats(response.data);
     } catch (error) {
       console.error('Error fetching stats:', error);
+      setStats({
+        total_orders: 0,
+        total_revenue: 0,
+        total_products: 0,
+        total_customers: 0
+      });
     } finally {
       setLoading(false);
     }

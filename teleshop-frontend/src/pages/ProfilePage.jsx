@@ -10,9 +10,16 @@ const ProfilePage = () => {
       </Typography>
       <Grid container spacing={3}>
         <Grid item xs={12} md={6}>
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              Account Information
+            </Typography>
+            {/* Account settings */}
+          </Paper>
+        </Grid>
+        <Grid item xs={12} md={6}>
           <TelegramConnect />
         </Grid>
-        {/* Other profile settings */}
       </Grid>
     </Container>
   );

@@ -20,10 +20,10 @@ class CategoryOut(CategoryBase):
     id: int
     created_at: datetime
     updated_at: datetime
-    children: List['CategoryOut'] = []  # For nested tree
-
+    product_count: Optional[int] = 0
+    children: List['CategoryOut'] = []
+    
     class Config:
-        orm_mode = True
+        from_attributes = True
 
-# Required for recursive model
-CategoryOut.update_forward_refs()
+CategoryOut.model_rebuild()

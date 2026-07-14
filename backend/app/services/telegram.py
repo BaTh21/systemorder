@@ -1,48 +1,274 @@
+# app/services/telegram.py
+from fastapi import Path
 import httpx
 from app.core.config import settings
 from app.core.database import async_session
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from app.models.order import Order
 from app.models.user import User
 
-async def send_order_notification(order_id: str):
-    async with async_session() as db:
-        result = await db.execute(
-            select(Order).where(Order.id == order_id)
-        )
-        order = result.scalars().first()
-        if not order:
-            return
-        # Fetch user
-        user = await db.get(User, order.user_id)
-        items_text = "\n".join(
-            [f"{item.quantity}x {item.product_name_snapshot} - ${item.total_price}" for item in order.items]
-        )
-        message = f"""
-🛒 *New Order #{order.id}*
+TELEGRAM_API = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}"
 
-*Customer:* {user.full_name}
-*Phone:* {user.phone}
-*Address:* {order.shipping_address}
+async def send_telegram_message(chat_id: str, text: str, parse_mode: str = "HTML"):
+    """Send message to a Telegram chat"""
+    print(f"\n📱 Sending Telegram message to: {chat_id}")
+    
+    url = f"{TELEGRAM_API}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": parse_mode,
+        "disable_web_page_preview": True
+    }
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, json=payload, timeout=10)
+            result = response.json()
+            
+            if result.get("ok"):
+                print(f"   ✅ Message sent successfully!")
+            else:
+                print(f"   ❌ Telegram API error: {result.get('description')}")
+            
+            return result
+        except Exception as e:
+            print(f"   ❌ Error: {e}")
+            return {"ok": False, "error": str(e)}
 
-*Items:*
+
+async def send_order_notification_to_admin(order_id: str):
+    """Send new order notification to admin - runs in background"""
+    print(f"\n🔔 [Background] Admin notification for Order #{order_id}")
+    
+    # Create a NEW session for this background task
+    from app.core.database import async_session as create_session
+    
+    async with create_session() as db:
+        try:
+            # Eagerly load ALL needed relationships
+            result = await db.execute(
+                select(Order)
+                .options(
+                    selectinload(Order.items),
+                    selectinload(Order.user)
+                )
+                .where(Order.id == int(order_id))
+            )
+            order = result.scalars().first()
+            
+            if not order:
+                print(f"   ❌ Order not found")
+                return
+            
+            user = order.user
+            if not user:
+                print(f"   ❌ User not found")
+                return
+            
+            # Build items text - NOW it's safe because we eagerly loaded items
+            items_text = ""
+            for item in order.items:
+                items_text += f"• {item.quantity}x {item.product_name_snapshot} - ${item.total_price}\n"
+            
+            message = f"""
+🛒 <b>New Order #{order.id}</b>
+
+<b>Customer:</b> {user.full_name}
+<b>Email:</b> {user.email}
+<b>Phone:</b> {user.phone or 'N/A'}
+
+<b>Items:</b>
 {items_text}
+<b>Subtotal:</b> ${order.subtotal}
+<b>Shipping:</b> ${order.shipping_fee}
+<b>Service Fee:</b> ${order.service_fee}
+<b>Total:</b> ${order.total}
 
-*Subtotal:* ${order.subtotal}
-*Shipping:* ${order.shipping_fee}
-*Service Fee:* ${order.service_fee}
-*Total:* ${order.total}
-
-*Notes:* {order.customer_notes or 'None'}
-
-[Contact Customer](tg://user?id={user.telegram_chat_id or ''})
+<b>Payment:</b> {order.payment_method or 'N/A'}
+<b>Notes:</b> {order.customer_notes or 'None'}
 """
-        url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": settings.TELEGRAM_ADMIN_CHAT_ID,
-            "text": message,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True
-        }
-        async with httpx.AsyncClient() as client:
-            await client.post(url, json=payload)
+            
+            print(f"   📤 Sending to admin: {settings.TELEGRAM_ADMIN_CHAT_ID}")
+            await send_telegram_message(settings.TELEGRAM_ADMIN_CHAT_ID, message)
+            
+        except Exception as e:
+            print(f"   ❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
+
+
+async def send_order_confirmation_to_customer(order_id: str):
+    """Send order confirmation to customer - runs in background"""
+    print(f"\n🔔 [Background] Customer confirmation for Order #{order_id}")
+    
+    from app.core.database import async_session as create_session
+    
+    async with create_session() as db:
+        try:
+            result = await db.execute(
+                select(Order)
+                .options(selectinload(Order.user))
+                .where(Order.id == int(order_id))
+            )
+            order = result.scalars().first()
+            
+            if not order or not order.user:
+                print(f"   ❌ Order/User not found")
+                return
+            
+            user = order.user
+            
+            if not user.telegram_chat_id:
+                print(f"   ℹ️ User has no Telegram connected")
+                return
+            
+            message = f"""
+✅ <b>Order Confirmed!</b>
+
+<b>Order ID:</b> #{order.id}
+<b>Status:</b> Pending Review
+<b>Total:</b> ${order.total}
+<b>Payment Method:</b> {order.payment_method or 'Bank Transfer'}
+
+We'll notify you of any status changes.
+
+Thank you for shopping with TeleShop! 🛍️
+"""
+            
+            print(f"   📤 Sending to customer: {user.telegram_chat_id}")
+            await send_telegram_message(user.telegram_chat_id, message)
+            
+        except Exception as e:
+            print(f"   ❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
+
+
+async def send_order_status_update(order_id: int, new_status: str):
+    """Send order status update to customer - runs in background"""
+    print(f"\n🔔 [Background] Status update for Order #{order_id}: {new_status}")
+    
+    from app.core.database import async_session as create_session
+    
+    async with create_session() as db:
+        try:
+            result = await db.execute(
+                select(Order)
+                .options(selectinload(Order.user))
+                .where(Order.id == order_id)
+            )
+            order = result.scalars().first()
+            
+            if not order or not order.user:
+                print(f"   ❌ Order/User not found")
+                return
+            
+            user = order.user
+            
+            if not user.telegram_chat_id:
+                print(f"   ℹ️ User has no Telegram connected")
+                return
+            
+            status_messages = {
+                "pending": "⏳ Your order has been received and is pending review.",
+                "confirmed": "✅ Your order has been confirmed!",
+                "waiting_payment": "💰 Please complete payment for your order.",
+                "paid": "💳 Payment received! Processing your order.",
+                "purchasing": "🛒 Purchasing your items from suppliers.",
+                "shipping": "🚚 Your order is on the way!",
+                "completed": "📦 Order delivered! Thank you!",
+                "cancelled": "❌ Order cancelled. Contact support if needed."
+            }
+            
+            status_value = new_status.value if hasattr(new_status, 'value') else str(new_status)
+            message = f"<b>📢 Order Update - #{order.id}</b>\n\n"
+            message += status_messages.get(status_value, f"Status: {status_value}")
+            
+            if status_value == "shipping" and order.tracking_number:
+                message += f"\n\n<b>📦 Tracking:</b>\n<code>{order.tracking_number}</code>"
+            
+            if status_value == "waiting_payment":
+                message += f"\n\n<b>Amount:</b> ${order.total}"
+            
+            print(f"   📤 Sending to customer: {user.telegram_chat_id}")
+            await send_telegram_message(user.telegram_chat_id, message)
+            
+        except Exception as e:
+            print(f"   ❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
+            
+async def send_order_confirmation_to_customer(order_id: str):
+    """Send order confirmation to customer with payment details"""
+    from app.core.database import async_session as create_session
+    
+    async with create_session() as db:
+        try:
+            result = await db.execute(
+                select(Order)
+                .options(selectinload(Order.user))
+                .where(Order.id == int(order_id))
+            )
+            order = result.scalars().first()
+            
+            if not order or not order.user:
+                return
+            
+            user = order.user
+            
+            if not user.telegram_chat_id:
+                return
+            
+            message = f"""
+✅ <b>Order Confirmed!</b>
+
+<b>Order ID:</b> #{order.id}
+<b>Total:</b> ${order.total}
+
+<b>💰 Payment Instructions:</b>
+
+Please transfer <b>${order.total}</b> to:
+
+🏦 <b>Bank:</b> {settings.BANK_NAME}
+👤 <b>Account Name:</b> {settings.BANK_ACCOUNT_NAME}
+🔢 <b>Account Number:</b> <code>{settings.BANK_ACCOUNT_NUMBER}</code>
+
+<b>Steps:</b>
+1. Transfer the exact amount
+2. Take screenshot of confirmation
+3. Upload on the website
+
+<i>Order will be processed after payment verification.</i>
+"""
+            
+            # Send text message first
+            await send_telegram_message(user.telegram_chat_id, message)
+            
+            # Send QR code image if available
+            qr_path = Path(settings.QR_CODE_URL.lstrip('/'))
+            if qr_path.exists():
+                await send_telegram_photo(user.telegram_chat_id, str(qr_path))
+                
+        except Exception as e:
+            print(f"Error: {e}")
+
+async def send_telegram_photo(chat_id: str, photo_path: str, caption: str = "📱 Scan QR code to pay"):
+    """Send photo/QR code to Telegram"""
+    url = f"{TELEGRAM_API}/sendPhoto"
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            with open(photo_path, 'rb') as photo:
+                files = {'photo': photo}
+                data = {
+                    'chat_id': chat_id,
+                    'caption': caption,
+                    'parse_mode': 'HTML'
+                }
+                response = await client.post(url, files=files, data=data)
+                return response.json()
+        except Exception as e:
+            print(f"Error sending photo: {e}")
+            return {"ok": False}
