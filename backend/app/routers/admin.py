@@ -730,60 +730,6 @@ async def delete_category(
     
     return {"message": "Category deleted", "category_id": category_id}
 
-@router.post("/seed/products")
-async def seed_products(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(admin_required)
-):
-    """Auto-seed all products and categories"""
-    
-    # Check if products already exist
-    result = await db.execute(select(func.count(Product.id)))
-    product_count = result.scalar()
-    
-    if product_count > 0:
-        # Ask for confirmation via a query parameter
-        return {
-            "message": f"Database already has {product_count} products",
-            "action": "Use ?force=true to re-seed (will delete existing products)"
-        }
-    
-    # Import the seed function
-    from seed_all_data import seed_all_data
-    
-    try:
-        await seed_all_data()
-        return {"message": "Products seeded successfully"}
-    except Exception as e:
-        raise HTTPException(500, f"Seeding failed: {str(e)}")
-
-
-@router.post("/seed/products/force")
-async def force_seed_products(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(admin_required)
-):
-    """Force re-seed all products (deletes existing)"""
-    
-    # Clear existing data
-    await db.execute("DELETE FROM order_items")
-    await db.execute("DELETE FROM orders")
-    await db.execute("DELETE FROM cart_items")
-    await db.execute("DELETE FROM product_images")
-    await db.execute("DELETE FROM product_variants")
-    await db.execute("DELETE FROM products")
-    await db.execute("DELETE FROM categories")
-    await db.commit()
-    
-    # Import and run seed
-    from seed_all_data import seed_all_data
-    
-    try:
-        await seed_all_data()
-        return {"message": "Products re-seeded successfully"}
-    except Exception as e:
-        raise HTTPException(500, f"Seeding failed: {str(e)}")
-    
 @router.get("/payment-info")
 async def get_payment_info():
     """Get payment information for customers"""
