@@ -11,10 +11,15 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = "8702317569:AAGMTgeMDVSxcJmXcxLYK_HQYqOjUA3tcyc"
     TELEGRAM_ADMIN_CHAT_ID: str = "1172933097"
     UPLOAD_DIR: str = "uploads"
-    CORS_ORIGINS: List[str] = ["http://localhost:3000"]
+    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
     SERVICE_FEE_RATE: float = 0.05
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB
     
+    # Cloudinary Settings
+    CLOUDINARY_CLOUD_NAME: str = "vck8ep1r"
+    CLOUDINARY_API_KEY: str = "448494694163931"
+    CLOUDINARY_API_SECRET: str = "AkCfVBDd339wasjFzhhvZmMeX-U"
+
     # Payment Settings
     BANK_NAME: str = "Example Bank"
     BANK_ACCOUNT_NAME: str = "TeleShop Inc."

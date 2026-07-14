@@ -1,3 +1,4 @@
+// src/components/products/ProductCard.jsx
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -12,7 +13,6 @@ import {
   IconButton,
   Tooltip,
   Rating,
-  Badge,
 } from '@mui/material';
 import {
   ShoppingCart,
@@ -23,6 +23,7 @@ import {
 } from '@mui/icons-material';
 import { useCart } from '../../contexts/CartContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { getImageUrl, getPlaceholderImage } from '../../utils/imageHelper';
 
 const ProductCard = ({ product, variant = 'grid' }) => {
   const navigate = useNavigate();
@@ -32,11 +33,13 @@ const ProductCard = ({ product, variant = 'grid' }) => {
   const [isFavorite, setIsFavorite] = useState(false);
   const [imageError, setImageError] = useState(false);
 
+  // Get primary image
   const primaryImage = product.images?.find(img => img.is_primary) || product.images?.[0];
   const imageUrl = imageError || !primaryImage?.image_url
-    ? 'https://via.placeholder.com/300x300?text=No+Image'
-    : primaryImage.image_url;
+    ? getPlaceholderImage()
+    : getImageUrl(primaryImage.image_url);
 
+  // Calculate discounted price
   const discountedPrice = product.discount_percent > 0
     ? (parseFloat(product.base_price) * (1 - product.discount_percent / 100)).toFixed(2)
     : null;
@@ -59,13 +62,13 @@ const ProductCard = ({ product, variant = 'grid' }) => {
   const handleToggleFavorite = (e) => {
     e.stopPropagation();
     setIsFavorite(!isFavorite);
-    // TODO: Implement favorite API call
   };
 
   const handleViewDetails = () => {
     navigate(`/products/${product.slug}`);
   };
 
+  // ========== LIST VARIANT ==========
   if (variant === 'list') {
     return (
       <Card
@@ -90,13 +93,13 @@ const ProductCard = ({ product, variant = 'grid' }) => {
         >
           <CardMedia
             component="img"
-            sx={{
-              height: '100%',
-              objectFit: 'cover',
-            }}
+            sx={{ height: '100%', objectFit: 'cover' }}
             image={imageUrl}
             alt={product.name}
-            onError={() => setImageError(true)}
+            onError={(e) => {
+              setImageError(true);
+              e.target.src = getPlaceholderImage();
+            }}
           />
           {product.discount_percent > 0 && (
             <Chip
@@ -104,11 +107,7 @@ const ProductCard = ({ product, variant = 'grid' }) => {
               label={`-${product.discount_percent}%`}
               color="error"
               size="small"
-              sx={{
-                position: 'absolute',
-                top: 10,
-                left: 10,
-              }}
+              sx={{ position: 'absolute', top: 10, left: 10 }}
             />
           )}
           {isOutOfStock && (
@@ -116,11 +115,7 @@ const ProductCard = ({ product, variant = 'grid' }) => {
               label="Out of Stock"
               color="default"
               size="small"
-              sx={{
-                position: 'absolute',
-                top: 10,
-                right: 10,
-              }}
+              sx={{ position: 'absolute', top: 10, right: 10 }}
             />
           )}
         </Box>
@@ -141,28 +136,18 @@ const ProductCard = ({ product, variant = 'grid' }) => {
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
               {discountedPrice ? (
                 <>
-                  <Typography variant="h6" color="primary">
-                    ${discountedPrice}
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ textDecoration: 'line-through' }}
-                  >
+                  <Typography variant="h6" color="primary">${discountedPrice}</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ textDecoration: 'line-through' }}>
                     ${product.base_price}
                   </Typography>
                 </>
               ) : (
-                <Typography variant="h6" color="primary">
-                  ${product.base_price}
-                </Typography>
+                <Typography variant="h6" color="primary">${product.base_price}</Typography>
               )}
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Rating value={4} readOnly size="small" />
-              <Typography variant="body2" color="text.secondary">
-                (24 reviews)
-              </Typography>
+              <Typography variant="body2" color="text.secondary">(24 reviews)</Typography>
             </Box>
             {product.supplier && (
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
@@ -171,12 +156,7 @@ const ProductCard = ({ product, variant = 'grid' }) => {
             )}
           </CardContent>
           <CardActions sx={{ justifyContent: 'space-between', px: 2 }}>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<Visibility />}
-              onClick={handleViewDetails}
-            >
+            <Button size="small" variant="outlined" startIcon={<Visibility />} onClick={handleViewDetails}>
               Details
             </Button>
             <Box sx={{ display: 'flex', gap: 1 }}>
@@ -201,7 +181,7 @@ const ProductCard = ({ product, variant = 'grid' }) => {
     );
   }
 
-  // Default grid variant
+  // ========== GRID VARIANT (Default) ==========
   return (
     <Card
       sx={{
@@ -210,191 +190,128 @@ const ProductCard = ({ product, variant = 'grid' }) => {
         flexDirection: 'column',
         position: 'relative',
         transition: 'all 0.3s ease',
-        '&:hover': {
-          boxShadow: 6,
-          transform: 'translateY(-4px)',
-        },
+        '&:hover': { boxShadow: 6, transform: 'translateY(-4px)' },
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
-      <Box
-        sx={{
-          position: 'relative',
-          cursor: 'pointer',
-          overflow: 'hidden',
-        }}
-        onClick={handleViewDetails}
-      >
-        <Badge
-          badgeContent={isOutOfStock ? 'Sold Out' : null}
-          color="error"
-          sx={{
-            '& .MuiBadge-badge': {
-              fontSize: '0.7rem',
-              py: 2,
-              px: 1,
-            },
+      {/* Image */}
+      <Box sx={{ position: 'relative', cursor: 'pointer', overflow: 'hidden' }} onClick={handleViewDetails}>
+        <CardMedia
+          component="img"
+          height="220"
+          image={imageUrl}
+          alt={product.name}
+          onError={(e) => {
+            setImageError(true);
+            e.target.src = getPlaceholderImage();
           }}
-        >
-          <CardMedia
-            component="img"
-            height="220"
-            image={imageUrl}
-            alt={product.name}
-            onError={() => setImageError(true)}
-            sx={{
-              transition: 'transform 0.3s ease',
-              transform: isHovered ? 'scale(1.05)' : 'scale(1)',
-            }}
-          />
-        </Badge>
+          sx={{
+            transition: 'transform 0.3s ease',
+            transform: isHovered ? 'scale(1.05)' : 'scale(1)',
+          }}
+        />
 
-        {/* Quick action buttons on hover */}
+        {/* Hover Actions */}
         {isHovered && !isOutOfStock && (
-          <Box
-            sx={{
-              position: 'absolute',
-              bottom: 10,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              display: 'flex',
-              gap: 1,
-              bgcolor: 'rgba(255, 255, 255, 0.95)',
-              borderRadius: 2,
-              p: 0.5,
-              boxShadow: 2,
-            }}
-          >
+          <Box sx={{
+            position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)',
+            display: 'flex', gap: 1, bgcolor: 'rgba(255,255,255,0.95)',
+            borderRadius: 2, p: 0.5, boxShadow: 2,
+          }}>
             <Tooltip title="Add to Cart">
-              <IconButton
-                size="small"
-                color="primary"
-                onClick={handleAddToCart}
-              >
+              <IconButton size="small" color="primary" onClick={handleAddToCart}>
                 <ShoppingCart />
               </IconButton>
             </Tooltip>
             <Tooltip title="Quick View">
-              <IconButton
-                size="small"
-                color="primary"
-                onClick={handleViewDetails}
-              >
+              <IconButton size="small" color="primary" onClick={handleViewDetails}>
                 <Visibility />
               </IconButton>
             </Tooltip>
             <Tooltip title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}>
-              <IconButton
-                size="small"
-                color={isFavorite ? 'error' : 'default'}
-                onClick={handleToggleFavorite}
-              >
+              <IconButton size="small" color={isFavorite ? 'error' : 'default'} onClick={handleToggleFavorite}>
                 {isFavorite ? <Favorite /> : <FavoriteBorder />}
               </IconButton>
             </Tooltip>
           </Box>
         )}
 
-        {/* Discount badge */}
+        {/* Discount Badge */}
         {product.discount_percent > 0 && (
           <Chip
             icon={<LocalOffer />}
             label={`-${product.discount_percent}%`}
             color="error"
             size="small"
-            sx={{
-              position: 'absolute',
-              top: 10,
-              left: 10,
-              fontWeight: 'bold',
-            }}
+            sx={{ position: 'absolute', top: 10, left: 10, fontWeight: 'bold' }}
           />
         )}
 
-        {/* Stock badge */}
+        {/* Low Stock Badge */}
         {product.stock <= 5 && product.stock > 0 && (
           <Chip
             label={`Only ${product.stock} left`}
             color="warning"
             size="small"
-            sx={{
-              position: 'absolute',
-              top: 10,
-              right: 10,
-            }}
+            sx={{ position: 'absolute', top: 10, right: 10 }}
           />
+        )}
+
+        {/* Out of Stock Overlay */}
+        {isOutOfStock && (
+          <Box sx={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            bgcolor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Chip label="Out of Stock" color="error" size="medium" sx={{ fontWeight: 'bold' }} />
+          </Box>
         )}
       </Box>
 
+      {/* Content */}
       <CardContent sx={{ flexGrow: 1, pb: 1 }}>
         <Typography
           variant="subtitle1"
           gutterBottom
           noWrap
-          sx={{
-            cursor: 'pointer',
-            fontWeight: 600,
-            '&:hover': { color: 'primary.main' },
-          }}
+          sx={{ cursor: 'pointer', fontWeight: 600, '&:hover': { color: 'primary.main' } }}
           onClick={handleViewDetails}
         >
           {product.name}
         </Typography>
-
         <Typography
           variant="body2"
           color="text.secondary"
           sx={{
-            mb: 2,
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-            minHeight: 40,
+            mb: 2, display: '-webkit-box', WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical', overflow: 'hidden', minHeight: 40,
           }}
         >
           {product.description || 'No description available'}
         </Typography>
-
         <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 1 }}>
           {discountedPrice ? (
             <>
-              <Typography variant="h6" color="primary" fontWeight="bold">
-                ${discountedPrice}
-              </Typography>
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ textDecoration: 'line-through' }}
-              >
+              <Typography variant="h6" color="primary" fontWeight="bold">${discountedPrice}</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ textDecoration: 'line-through' }}>
                 ${product.base_price}
               </Typography>
             </>
           ) : (
-            <Typography variant="h6" color="primary" fontWeight="bold">
-              ${product.base_price}
-            </Typography>
+            <Typography variant="h6" color="primary" fontWeight="bold">${product.base_price}</Typography>
           )}
         </Box>
-
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           <Rating value={4} readOnly size="small" />
-          <Typography variant="caption" color="text.secondary">
-            (24)
-          </Typography>
+          <Typography variant="caption" color="text.secondary">(24)</Typography>
         </Box>
-
         {product.category?.name && (
-          <Chip
-            label={product.category.name}
-            size="small"
-            variant="outlined"
-            sx={{ mt: 1, fontSize: '0.7rem' }}
-          />
+          <Chip label={product.category.name} size="small" variant="outlined" sx={{ mt: 1, fontSize: '0.7rem' }} />
         )}
       </CardContent>
 
+      {/* Add to Cart Button */}
       <CardActions sx={{ p: 2, pt: 0 }}>
         <Button
           fullWidth
@@ -402,10 +319,7 @@ const ProductCard = ({ product, variant = 'grid' }) => {
           startIcon={<ShoppingCart />}
           onClick={handleAddToCart}
           disabled={isOutOfStock}
-          sx={{
-            textTransform: 'none',
-            fontWeight: 600,
-          }}
+          sx={{ textTransform: 'none', fontWeight: 600 }}
         >
           {isOutOfStock ? 'Out of Stock' : 'Add to Cart'}
         </Button>

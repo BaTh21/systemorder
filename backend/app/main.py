@@ -1,6 +1,7 @@
 # app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.routers import auth, products, categories, cart, orders, admin, telegram
 from app.core.database import engine, async_session
@@ -9,19 +10,17 @@ from app.models.user import User, UserRole
 from app.core.security import get_password_hash
 from sqlalchemy import select
 import httpx
-from fastapi.staticfiles import StaticFiles
 import os
 
-app = FastAPI(title="TeleShop API")
 # Create upload directories
 os.makedirs("uploads/products", exist_ok=True)
 os.makedirs("uploads/categories", exist_ok=True)
 os.makedirs("uploads/payments", exist_ok=True)
 
+# Create app ONCE
 app = FastAPI(title="TeleShop API")
 
-# Mount static files - MUST be before CORS middleware
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+# CORS - MUST be before static files mount
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -29,6 +28,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files AFTER CORS
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+@app.get("/")
+async def root():
+    return {
+        "message": "TeleShop API is running!",
+        "docs": "/docs",
+        "api": "/api"
+    }
 
 @app.on_event("startup")
 async def startup_event():
@@ -52,26 +62,11 @@ async def startup_event():
             )
             db.add(admin)
             await db.commit()
-    
-    # Set Telegram webhook
-    await setup_telegram_webhook()
+            print("✅ Admin user created")
+        else:
+            print("✅ Admin user already exists")
 
-async def setup_telegram_webhook():
-    """Set up Telegram webhook on startup"""
-    webhook_url = f"https://your-domain.com/api/telegram/webhook"
-    url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/setWebhook"
-    
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url, json={"url": webhook_url})
-            result = response.json()
-            if result.get("ok"):
-                print("✅ Telegram webhook set successfully")
-            else:
-                print(f"❌ Failed to set webhook: {result}")
-        except Exception as e:
-            print(f"❌ Error setting webhook: {e}")
-
+# Include routers
 app.include_router(auth.router, prefix="/api")
 app.include_router(products.router, prefix="/api")
 app.include_router(categories.router, prefix="/api")

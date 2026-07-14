@@ -267,7 +267,7 @@ Use /orders to see your pending payments.
                 "/help - Show this help message\n\n"
                 "<b>Need Help?</b>\n"
                 "Contact us: @TeleShopSupport\n"
-                "Website: http://localhost:3000"
+                "Website: http://localhost:8000"
             )
         
         elif text == "/status":
