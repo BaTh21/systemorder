@@ -325,16 +325,12 @@ async def update_product(
     # Update fields if provided
     if name is not None:
         product.name = name
-        # Update slug if name changed
         base_slug = slugify(name)
         slug = base_slug
         counter = 1
         while True:
             existing = await db.execute(
-                select(Product).where(
-                    Product.slug == slug,
-                    Product.id != product_id
-                )
+                select(Product).where(Product.slug == slug, Product.id != product_id)
             )
             if not existing.scalars().first():
                 break
@@ -342,50 +338,42 @@ async def update_product(
             counter += 1
         product.slug = slug
     
-    if description is not None:
-        product.description = description
-    if base_price is not None:
-        product.base_price = base_price
-    if stock is not None:
-        product.stock = stock
-    if category_id is not None:
-        category = await db.get(Category, category_id)
-        if not category:
-            raise HTTPException(400, "Category not found")
-        product.category_id = category_id
-    if supplier is not None:
-        product.supplier = supplier
-    if supplier_url is not None:
-        product.supplier_url = supplier_url
-    if discount_percent is not None:
-        product.discount_percent = discount_percent
-    if is_active is not None:
-        product.is_active = is_active
+    if description is not None: product.description = description
+    if base_price is not None: product.base_price = base_price
+    if stock is not None: product.stock = stock
+    if category_id is not None: product.category_id = category_id
+    if supplier is not None: product.supplier = supplier
+    if supplier_url is not None: product.supplier_url = supplier_url
+    if discount_percent is not None: product.discount_percent = discount_percent
+    if is_active is not None: product.is_active = is_active
     
-    # Handle new images
+    # ===== FIX: Upload images to Cloudinary instead of local =====
     if images and images[0].filename:
-        upload_dir = Path(settings.UPLOAD_DIR) / "products" / str(product.id)
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        
         for i, image in enumerate(images):
             if image.filename:
-                file_extension = os.path.splitext(image.filename)[1]
-                file_name = f"{product.id}_{i}_{datetime.now().timestamp()}{file_extension}"
-                file_path = upload_dir / file_name
-                
-                with file_path.open("wb") as buffer:
-                    shutil.copyfileobj(image.file, buffer)
-                
-                product_image = ProductImage(
-                    product_id=product.id,
-                    image_url=f"/{settings.UPLOAD_DIR}/products/{product.id}/{file_name}",
-                    is_primary=False
-                )
-                db.add(product_image)
+                try:
+                    # Upload to Cloudinary
+                    result = await upload_image(
+                        image,
+                        folder=f"products/{product.id}",
+                        public_id=f"{product.slug}_{i}_{datetime.now().timestamp()}"
+                    )
+                    
+                    # Create image record with Cloudinary URL
+                    product_image = ProductImage(
+                        product_id=product.id,
+                        image_url=result["url"],  # Cloudinary URL
+                        is_primary=False
+                    )
+                    db.add(product_image)
+                    print(f"✅ Image uploaded to Cloudinary: {result['url']}")
+                    
+                except Exception as e:
+                    print(f"❌ Cloudinary upload error: {e}")
+                    raise HTTPException(500, f"Image upload failed: {str(e)}")
     
     await db.commit()
     await db.refresh(product)
-    
     return product
 
 @router.delete("/products/{product_id}")
@@ -393,12 +381,12 @@ async def delete_product(
     product_id: int,
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete a product and its Cloudinary images"""
+    """Admin: Permanently delete a product"""
     product = await db.get(Product, product_id)
     if not product:
         raise HTTPException(404, "Product not found")
     
-    # Delete images from Cloudinary
+    # Delete related images from Cloudinary
     result = await db.execute(
         select(ProductImage).where(ProductImage.product_id == product_id)
     )
@@ -406,18 +394,24 @@ async def delete_product(
     
     for image in images:
         try:
-            # Extract public_id from URL if needed, or store it in database
-            # For simplicity, we'll just deactivate the product
-            pass
+            # Extract public_id from Cloudinary URL and delete
+            if image.image_url and 'cloudinary.com' in image.image_url:
+                parts = image.image_url.split('/')
+                # Find the public_id (everything after version)
+                upload_index = parts.index('upload')
+                public_id_parts = parts[upload_index + 2:]  # Skip version
+                public_id = '/'.join(public_id_parts).rsplit('.', 1)[0]
+                
+                cloudinary.uploader.destroy(public_id)
+                print(f"🗑️ Deleted from Cloudinary: {public_id}")
         except Exception as e:
-            print(f"Error deleting Cloudinary image: {e}")
+            print(f"⚠️ Could not delete Cloudinary image: {e}")
     
-    # Soft delete
-    product.is_active = False
+    # Delete product (cascade will delete images and variants)
+    await db.delete(product)
     await db.commit()
     
-    return {"message": "Product deactivated"}
-
+    return {"message": "Product deleted successfully", "product_id": product_id}
 
 @router.put("/products/{product_id}/toggle-active")
 async def toggle_product_active(
@@ -444,55 +438,64 @@ async def add_product_images(
     images: List[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db)
 ):
-    """Add images to an existing product"""
+    """Add images to an existing product - using Cloudinary"""
     product = await db.get(Product, product_id)
     if not product:
         raise HTTPException(404, "Product not found")
     
-    upload_dir = Path(settings.UPLOAD_DIR) / "products" / str(product.id)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    
-    added_count = 0
-    for image in images:
+    for i, image in enumerate(images):
         if image.filename:
-            file_extension = os.path.splitext(image.filename)[1]
-            file_name = f"{product.id}_{datetime.now().timestamp()}{file_extension}"
-            file_path = upload_dir / file_name
-            
-            with file_path.open("wb") as buffer:
-                shutil.copyfileobj(image.file, buffer)
-            
-            product_image = ProductImage(
-                product_id=product.id,
-                image_url=f"/{settings.UPLOAD_DIR}/products/{product.id}/{file_name}",
-                is_primary=False
-            )
-            db.add(product_image)
-            added_count += 1
+            try:
+                # Upload to Cloudinary
+                result = await upload_image(
+                    image,
+                    folder=f"products/{product.id}",
+                    public_id=f"{product.slug}_{i}_{datetime.now().timestamp()}"
+                )
+                
+                product_image = ProductImage(
+                    product_id=product.id,
+                    image_url=result["url"],  # Cloudinary URL
+                    is_primary=False
+                )
+                db.add(product_image)
+                print(f"✅ Uploaded to Cloudinary: {result['url']}")
+                
+            except Exception as e:
+                print(f"❌ Cloudinary error: {e}")
+                raise HTTPException(500, f"Image upload failed: {str(e)}")
     
     await db.commit()
-    return {"message": f"{added_count} images added", "product_id": product_id}
+    return {"message": f"{len(images)} images added"}
 
 @router.delete("/products/images/{image_id}")
 async def delete_product_image(
     image_id: int,
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete a product image"""
+    """Admin: Delete a specific product image"""
     image = await db.get(ProductImage, image_id)
     if not image:
         raise HTTPException(404, "Image not found")
     
-    # Delete file from disk
-    file_path = Path(image.image_url.lstrip('/'))
-    if file_path.exists():
-        file_path.unlink()
+    # Delete from Cloudinary
+    if image.image_url and 'cloudinary.com' in image.image_url:
+        try:
+            parts = image.image_url.split('/')
+            upload_index = parts.index('upload')
+            public_id_parts = parts[upload_index + 2:]
+            public_id = '/'.join(public_id_parts).rsplit('.', 1)[0]
+            
+            result = cloudinary.uploader.destroy(public_id)
+            print(f"🗑️ Cloudinary: {result}")
+        except Exception as e:
+            print(f"⚠️ Cloudinary delete error: {e}")
     
+    # Delete from database
     await db.delete(image)
     await db.commit()
     
-    return {"message": "Image deleted", "image_id": image_id}
-
+    return {"message": "Image deleted successfully", "image_id": image_id}
 @router.post("/products/{product_id}/variants")
 async def add_product_variant(
     product_id: int,

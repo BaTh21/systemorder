@@ -1,5 +1,6 @@
 // src/pages/admin/AdminCustomers.jsx
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Container,
   Typography,
@@ -23,12 +24,10 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Switch,
-  FormControlLabel,
   Pagination,
-  debounce,
   Tooltip,
-  Badge,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 import {
   Search,
@@ -37,16 +36,28 @@ import {
   Person,
   Email,
   Phone,
-  FilterList,
-  Clear,
   Refresh,
+  Clear,
   Block,
   CheckCircle,
   Telegram,
+  ArrowBack,
 } from '@mui/icons-material';
 import api from '../../api/axios';
 
+const statusColors = {
+  pending: 'default',
+  confirmed: 'primary',
+  waiting_payment: 'warning',
+  paid: 'info',
+  purchasing: 'info',
+  shipping: 'primary',
+  completed: 'success',
+  cancelled: 'error',
+};
+
 const AdminCustomers = () => {
+  const navigate = useNavigate();
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -58,8 +69,8 @@ const AdminCustomers = () => {
   const [deleteDialog, setDeleteDialog] = useState({ open: false, customer: null });
   const [editForm, setEditForm] = useState({ full_name: '', email: '', phone: '' });
   const [saving, setSaving] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
-  // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search);
@@ -76,17 +87,13 @@ const AdminCustomers = () => {
     setLoading(true);
     try {
       const response = await api.get('/admin/customers', {
-        params: { 
-          page, 
-          limit: 20,
-          search: debouncedSearch || undefined 
-        }
+        params: { page, limit: 20, search: debouncedSearch || undefined }
       });
-      
+
       let customersData = [];
       let totalCount = 0;
       let pagesCount = 1;
-      
+
       if (Array.isArray(response.data)) {
         customersData = response.data;
         totalCount = response.data.length;
@@ -97,7 +104,7 @@ const AdminCustomers = () => {
       } else {
         customersData = [];
       }
-      
+
       setCustomers(customersData);
       setTotal(totalCount);
       setTotalPages(pagesCount);
@@ -121,10 +128,11 @@ const AdminCustomers = () => {
     setSaving(true);
     try {
       await api.put(`/admin/customers/${editDialog.customer.id}`, editForm);
+      setSnackbar({ open: true, message: 'Customer updated!', severity: 'success' });
       setEditDialog({ open: false, customer: null });
       fetchCustomers();
     } catch (error) {
-      console.error('Error updating customer:', error);
+      setSnackbar({ open: true, message: 'Failed to update customer', severity: 'error' });
     } finally {
       setSaving(false);
     }
@@ -137,14 +145,15 @@ const AdminCustomers = () => {
   const handleConfirmDelete = async () => {
     try {
       await api.delete(`/admin/customers/${deleteDialog.customer.id}`);
+      setSnackbar({ open: true, message: 'Customer deleted', severity: 'success' });
       setDeleteDialog({ open: false, customer: null });
       fetchCustomers();
     } catch (error) {
-      console.error('Error deleting customer:', error);
+      setSnackbar({ open: true, message: 'Failed to delete customer', severity: 'error' });
     }
   };
 
-  const handleToggleActive = async (customerId, currentStatus) => {
+  const handleToggleActive = async (customerId) => {
     try {
       await api.put(`/admin/customers/${customerId}/toggle-active`);
       fetchCustomers();
@@ -162,48 +171,32 @@ const AdminCustomers = () => {
   const formatDate = (dateStr) => {
     if (!dateStr) return 'N/A';
     return new Date(dateStr).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
+      year: 'numeric', month: 'short', day: 'numeric',
     });
   };
-
-  if (loading && customers.length === 0) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
 
   return (
     <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh', py: 4 }}>
       <Container maxWidth="xl">
-        
+
+        {/* Back Button */}
+        <Button
+          startIcon={<ArrowBack />}
+          onClick={() => navigate('/admin')}
+          sx={{ textTransform: 'none', fontWeight: 500, color: '#475569', mb: 2 }}
+        >
+          Back to Dashboard
+        </Button>
+
         {/* Header */}
         <Paper elevation={0} sx={{ p: 3, mb: 3, borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white' }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
             <Box>
-              <Typography variant="h5" fontWeight={700} color="#0f172a">
-                Customers
-              </Typography>
-              <Typography variant="body2" color="#94a3b8" mt={0.5}>
-                {total} total customer{total !== 1 ? 's' : ''}
-              </Typography>
+              <Typography variant="h5" fontWeight={700} color="#0f172a">Customers</Typography>
+              <Typography variant="body2" color="#94a3b8" mt={0.5}>{total} total customer{total !== 1 ? 's' : ''}</Typography>
             </Box>
-            <Stack direction="row" spacing={1}>
-              <Button
-                startIcon={<Refresh />}
-                onClick={fetchCustomers}
-                size="small"
-                sx={{ borderRadius: 2, textTransform: 'none' }}
-              >
-                Refresh
-              </Button>
-            </Stack>
+            <Button startIcon={<Refresh />} onClick={fetchCustomers} size="small" sx={{ borderRadius: 2, textTransform: 'none' }}>Refresh</Button>
           </Stack>
-
-          {/* Search Bar */}
           <Stack direction="row" spacing={2} mt={2}>
             <TextField
               placeholder="Search by name or email..."
@@ -212,39 +205,23 @@ const AdminCustomers = () => {
               size="small"
               sx={{ flex: 1, maxWidth: 400 }}
               InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Search sx={{ color: '#94a3b8' }} />
-                  </InputAdornment>
-                ),
+                startAdornment: <InputAdornment position="start"><Search sx={{ color: '#94a3b8' }} /></InputAdornment>,
                 endAdornment: search && (
                   <InputAdornment position="end">
-                    <IconButton size="small" onClick={handleClearSearch}>
-                      <Clear fontSize="small" />
-                    </IconButton>
+                    <IconButton size="small" onClick={handleClearSearch}><Clear fontSize="small" /></IconButton>
                   </InputAdornment>
                 ),
                 sx: { borderRadius: 2 },
               }}
             />
             {debouncedSearch && (
-              <Chip 
-                label={`Searching: "${debouncedSearch}"`} 
-                size="small" 
-                onDelete={handleClearSearch}
-                sx={{ bgcolor: '#eff6ff', color: '#2563eb' }}
-              />
+              <Chip label={`"${debouncedSearch}"`} size="small" onDelete={handleClearSearch} sx={{ bgcolor: '#eff6ff', color: '#2563eb' }} />
             )}
           </Stack>
         </Paper>
 
         {/* Customers Table */}
         <Paper elevation={0} sx={{ borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white', overflow: 'hidden' }}>
-          {loading && (
-            <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1 }}>
-              <CircularProgress size={24} sx={{ position: 'absolute', top: 16, right: 16 }} />
-            </Box>
-          )}
           <TableContainer>
             <Table>
               <TableHead>
@@ -259,16 +236,13 @@ const AdminCustomers = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {customers.length === 0 ? (
+                {loading ? (
+                  <TableRow><TableCell colSpan={7} align="center" sx={{ py: 8 }}><CircularProgress /></TableCell></TableRow>
+                ) : customers.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} align="center" sx={{ py: 8 }}>
                       <Person sx={{ fontSize: 48, color: '#cbd5e1', mb: 1 }} />
-                      <Typography variant="h6" color="#94a3b8">
-                        No customers found
-                      </Typography>
-                      <Typography variant="body2" color="#cbd5e1">
-                        Try adjusting your search
-                      </Typography>
+                      <Typography variant="h6" color="#94a3b8">No customers found</Typography>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -280,74 +254,29 @@ const AdminCustomers = () => {
                             {customer.full_name?.charAt(0)?.toUpperCase() || '?'}
                           </Avatar>
                           <Box>
-                            <Typography variant="body2" fontWeight={600} color="#0f172a">
-                              {customer.full_name || 'N/A'}
-                            </Typography>
-                            <Typography variant="caption" color="#94a3b8">
-                              ID: #{customer.id}
-                            </Typography>
+                            <Typography variant="body2" fontWeight={600} color="#0f172a">{customer.full_name || 'N/A'}</Typography>
+                            <Typography variant="caption" color="#94a3b8">ID: #{customer.id}</Typography>
                           </Box>
                         </Stack>
                       </TableCell>
+                      <TableCell><Typography variant="body2" color="#334155">{customer.email || 'N/A'}</Typography></TableCell>
+                      <TableCell><Typography variant="body2" color="#334155">{customer.phone || 'N/A'}</Typography></TableCell>
                       <TableCell>
-                        <Typography variant="body2" color="#334155">
-                          {customer.email || 'N/A'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" color="#334155">
-                          {customer.phone || 'N/A'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          icon={customer.is_active ? <CheckCircle /> : <Block />}
-                          label={customer.is_active ? 'Active' : 'Inactive'}
-                          color={customer.is_active ? 'success' : 'default'}
-                          size="small"
-                          variant={customer.is_active ? 'filled' : 'outlined'}
-                          sx={{ fontWeight: 500 }}
-                        />
+                        <Chip icon={customer.is_active ? <CheckCircle /> : <Block />} label={customer.is_active ? 'Active' : 'Inactive'} color={customer.is_active ? 'success' : 'default'} size="small" variant={customer.is_active ? 'filled' : 'outlined'} />
                       </TableCell>
                       <TableCell>
                         {customer.telegram_chat_id ? (
-                          <Chip 
-                            icon={<Telegram sx={{ fontSize: 14 }} />} 
-                            label="Connected" 
-                            color="primary" 
-                            size="small"
-                            variant="outlined"
-                          />
+                          <Chip icon={<Telegram sx={{ fontSize: 14 }} />} label="Connected" color="primary" size="small" variant="outlined" />
                         ) : (
                           <Chip label="Not Connected" size="small" variant="outlined" sx={{ color: '#94a3b8' }} />
                         )}
                       </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" color="#64748b">
-                          {formatDate(customer.created_at)}
-                        </Typography>
-                      </TableCell>
+                      <TableCell><Typography variant="body2" color="#64748b">{formatDate(customer.created_at)}</Typography></TableCell>
                       <TableCell align="center">
                         <Stack direction="row" spacing={0.5} justifyContent="center">
-                          <Tooltip title="Toggle Active">
-                            <IconButton 
-                              size="small" 
-                              onClick={() => handleToggleActive(customer.id, customer.is_active)}
-                              color={customer.is_active ? 'success' : 'default'}
-                            >
-                              {customer.is_active ? <CheckCircle fontSize="small" /> : <Block fontSize="small" />}
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Edit">
-                            <IconButton size="small" onClick={() => handleEditClick(customer)} color="primary">
-                              <Edit fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Delete">
-                            <IconButton size="small" onClick={() => handleDeleteClick(customer)} color="error">
-                              <Delete fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                          <Tooltip title="Toggle Active"><IconButton size="small" onClick={() => handleToggleActive(customer.id)} color={customer.is_active ? 'success' : 'default'}>{customer.is_active ? <CheckCircle fontSize="small" /> : <Block fontSize="small" />}</IconButton></Tooltip>
+                          <Tooltip title="Edit"><IconButton size="small" onClick={() => handleEditClick(customer)} color="primary"><Edit fontSize="small" /></IconButton></Tooltip>
+                          <Tooltip title="Delete"><IconButton size="small" onClick={() => handleDeleteClick(customer)} color="error"><Delete fontSize="small" /></IconButton></Tooltip>
                         </Stack>
                       </TableCell>
                     </TableRow>
@@ -356,18 +285,9 @@ const AdminCustomers = () => {
               </TableBody>
             </Table>
           </TableContainer>
-
-          {/* Pagination */}
           {totalPages > 1 && (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 2, borderTop: '1px solid #e2e8f0' }}>
-              <Pagination
-                count={totalPages}
-                page={page}
-                onChange={(e, p) => setPage(p)}
-                color="primary"
-                showFirstButton
-                showLastButton
-              />
+              <Pagination count={totalPages} page={page} onChange={(e, p) => setPage(p)} color="primary" showFirstButton showLastButton />
             </Box>
           )}
         </Paper>
@@ -378,39 +298,14 @@ const AdminCustomers = () => {
         <DialogTitle sx={{ fontWeight: 700 }}>Edit Customer</DialogTitle>
         <DialogContent>
           <Stack spacing={2.5} sx={{ mt: 1 }}>
-            <TextField
-              label="Full Name"
-              value={editForm.full_name}
-              onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
-              fullWidth
-              size="small"
-              InputProps={{ startAdornment: <InputAdornment position="start"><Person fontSize="small" /></InputAdornment> }}
-            />
-            <TextField
-              label="Email"
-              value={editForm.email}
-              onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-              fullWidth
-              size="small"
-              InputProps={{ startAdornment: <InputAdornment position="start"><Email fontSize="small" /></InputAdornment> }}
-            />
-            <TextField
-              label="Phone"
-              value={editForm.phone}
-              onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-              fullWidth
-              size="small"
-              InputProps={{ startAdornment: <InputAdornment position="start"><Phone fontSize="small" /></InputAdornment> }}
-            />
+            <TextField label="Full Name" value={editForm.full_name} onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })} fullWidth size="small" InputProps={{ startAdornment: <InputAdornment position="start"><Person fontSize="small" /></InputAdornment> }} />
+            <TextField label="Email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} fullWidth size="small" InputProps={{ startAdornment: <InputAdornment position="start"><Email fontSize="small" /></InputAdornment> }} />
+            <TextField label="Phone" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} fullWidth size="small" InputProps={{ startAdornment: <InputAdornment position="start"><Phone fontSize="small" /></InputAdornment> }} />
           </Stack>
         </DialogContent>
         <DialogActions sx={{ p: 3, pt: 0 }}>
-          <Button onClick={() => setEditDialog({ open: false, customer: null })} sx={{ borderRadius: 2, textTransform: 'none' }}>
-            Cancel
-          </Button>
-          <Button variant="contained" onClick={handleSaveEdit} disabled={saving} sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}>
-            {saving ? <CircularProgress size={20} /> : 'Save Changes'}
-          </Button>
+          <Button onClick={() => setEditDialog({ open: false, customer: null })} sx={{ borderRadius: 2, textTransform: 'none' }}>Cancel</Button>
+          <Button variant="contained" onClick={handleSaveEdit} disabled={saving} sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}>{saving ? <CircularProgress size={20} /> : 'Save Changes'}</Button>
         </DialogActions>
       </Dialog>
 
@@ -418,22 +313,18 @@ const AdminCustomers = () => {
       <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, customer: null })} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>Delete Customer</DialogTitle>
         <DialogContent>
-          <Typography variant="body1" color="#475569">
-            Are you sure you want to delete <strong>{deleteDialog.customer?.full_name}</strong>?
-          </Typography>
-          <Typography variant="body2" color="#ef4444" mt={1}>
-            This action cannot be undone.
-          </Typography>
+          <Typography>Are you sure you want to delete <strong>{deleteDialog.customer?.full_name}</strong>?</Typography>
+          <Typography variant="body2" color="error" mt={1}>This action cannot be undone.</Typography>
         </DialogContent>
         <DialogActions sx={{ p: 3, pt: 0 }}>
-          <Button onClick={() => setDeleteDialog({ open: false, customer: null })} sx={{ borderRadius: 2, textTransform: 'none' }}>
-            Cancel
-          </Button>
-          <Button variant="contained" color="error" onClick={handleConfirmDelete} sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}>
-            Delete
-          </Button>
+          <Button onClick={() => setDeleteDialog({ open: false, customer: null })} sx={{ borderRadius: 2, textTransform: 'none' }}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleConfirmDelete} sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}>Delete</Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar(s => ({ ...s, open: false }))}>
+        <Alert severity={snackbar.severity} variant="filled" sx={{ borderRadius: 2 }}>{snackbar.message}</Alert>
+      </Snackbar>
     </Box>
   );
 };
