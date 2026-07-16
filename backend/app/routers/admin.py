@@ -1147,3 +1147,65 @@ async def admin_get_order(
         "updated_at": str(order.updated_at) if order.updated_at else None,
         "items": items_list
     }
+    
+@router.put("/customers/{customer_id}")
+async def update_customer(
+    customer_id: int,
+    data: dict,  # Accept JSON body
+    db: AsyncSession = Depends(get_db)
+):
+    """Admin: Update customer details"""
+    customer = await db.get(User, customer_id)
+    if not customer:
+        raise HTTPException(404, "Customer not found")
+    
+    print(f"📝 Updating customer {customer_id}: {data}")
+    
+    if data.get("full_name"):
+        customer.full_name = data["full_name"]
+    if data.get("email"):
+        customer.email = data["email"]
+    if data.get("phone") is not None:
+        customer.phone = data["phone"]
+    
+    await db.commit()
+    await db.refresh(customer)
+    
+    return {
+        "message": "Customer updated successfully",
+        "customer": {
+            "id": customer.id,
+            "full_name": customer.full_name,
+            "email": customer.email,
+            "phone": customer.phone,
+            "is_active": customer.is_active,
+        }
+    }
+    
+@router.put("/customers/{customer_id}/toggle-active")
+async def toggle_customer_active(
+    customer_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Admin: Toggle customer active status"""
+    customer = await db.get(User, customer_id)
+    if not customer:
+        raise HTTPException(404, "Customer not found")
+    
+    customer.is_active = not customer.is_active
+    await db.commit()
+    return {"message": f"Customer {'activated' if customer.is_active else 'deactivated'}", "is_active": customer.is_active}
+
+@router.delete("/customers/{customer_id}")
+async def delete_customer(
+    customer_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Admin: Delete customer"""
+    customer = await db.get(User, customer_id)
+    if not customer:
+        raise HTTPException(404, "Customer not found")
+    
+    await db.delete(customer)
+    await db.commit()
+    return {"message": "Customer deleted"}

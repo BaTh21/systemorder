@@ -16,19 +16,21 @@ import {
   Stepper,
   Step,
   StepLabel,
+  Chip,
+  Stack,
 } from '@mui/material';
 import TelegramIcon from '@mui/icons-material/Telegram';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../api/axios';
 
 const TelegramConnect = () => {
-  const { user, fetchUser } = useAuth();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [connected, setConnected] = useState(false);
   const [openDialog, setOpenDialog] = useState(false);
   const [chatId, setChatId] = useState('');
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [message, setMessage] = useState({ type: '', text: '' });
 
   useEffect(() => {
     if (user?.telegram_chat_id) {
@@ -38,20 +40,23 @@ const TelegramConnect = () => {
   }, [user]);
 
   const handleConnect = async () => {
-    if (!chatId) {
-      setError('Please enter your Telegram Chat ID');
+    if (!chatId.trim()) {
+      setMessage({ type: 'error', text: 'Please enter your Telegram Chat ID' });
       return;
     }
+    
     setLoading(true);
-    setError('');
+    setMessage({ type: '', text: '' });
+    
     try {
-      await api.post('/telegram/connect', { chat_id: chatId });
+      await api.post('/telegram/connect', { chat_id: chatId.trim() });
       setConnected(true);
-      setSuccess('Telegram connected successfully!');
+      setMessage({ type: 'success', text: 'Telegram connected successfully!' });
       setOpenDialog(false);
-      fetchUser(); // Refresh user data
     } catch (error) {
-      setError(error.response?.data?.detail || 'Failed to connect Telegram');
+      console.error('Connect error:', error);
+      const errorMsg = error.response?.data?.detail || 'Failed to connect Telegram';
+      setMessage({ type: 'error', text: errorMsg });
     } finally {
       setLoading(false);
     }
@@ -59,34 +64,41 @@ const TelegramConnect = () => {
 
   const handleDisconnect = async () => {
     setLoading(true);
-    setError('');
+    setMessage({ type: '', text: '' });
+    
     try {
       await api.post('/telegram/disconnect');
       setConnected(false);
       setChatId('');
-      setSuccess('Telegram disconnected successfully');
-      fetchUser(); // Refresh user data
+      setMessage({ type: 'success', text: 'Telegram disconnected successfully' });
     } catch (error) {
       console.error('Disconnect error:', error);
       const errorMsg = error.response?.data?.detail || 'Failed to disconnect Telegram';
-      setError(errorMsg);
+      setMessage({ type: 'error', text: errorMsg });
     } finally {
       setLoading(false);
     }
   };
 
   const handleOpenBot = () => {
-    // Open Telegram bot to get Chat ID
     window.open('https://t.me/ecommerce_system_bot', '_blank');
   };
 
+  // Clear message after 5 seconds
+  useEffect(() => {
+    if (message.text) {
+      const timer = setTimeout(() => setMessage({ type: '', text: '' }), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [message]);
+
   return (
-    <Card>
+    <Card variant="outlined" sx={{ borderColor: '#e2e8f0', borderRadius: 2 }}>
       <CardContent>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
           <TelegramIcon sx={{ fontSize: 40, color: '#0088cc' }} />
           <Box>
-            <Typography variant="h6">
+            <Typography variant="h6" fontWeight={600}>
               Telegram Notifications
             </Typography>
             <Typography variant="body2" color="text.secondary">
@@ -97,100 +109,120 @@ const TelegramConnect = () => {
           </Box>
         </Box>
 
-        {success && (
-          <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
-            {success}
-          </Alert>
-        )}
-
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-            {error}
+        {/* Show only ONE message at a time */}
+        {message.text && (
+          <Alert 
+            severity={message.type} 
+            sx={{ mb: 2, borderRadius: 2 }}
+            onClose={() => setMessage({ type: '', text: '' })}
+          >
+            {message.text}
           </Alert>
         )}
 
         {connected ? (
           <Box>
-            <Typography variant="body2" sx={{ mb: 2 }}>
-              Connected Chat ID: <code>{chatId}</code>
-            </Typography>
+            <Box sx={{ mb: 2, p: 2, bgcolor: '#f0fdf4', borderRadius: 2, border: '1px solid #bbf7d0' }}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <CheckCircleIcon sx={{ color: '#22c55e', fontSize: 20 }} />
+                <Typography variant="body2" fontWeight={500} color="#15803d">
+                  Connected
+                </Typography>
+              </Stack>
+              <Typography variant="body2" sx={{ mt: 1, color: '#475569' }}>
+                Chat ID: <code style={{ background: '#e2e8f0', padding: '2px 6px', borderRadius: 4 }}>{chatId}</code>
+              </Typography>
+            </Box>
             <Button
               variant="outlined"
               color="error"
               onClick={handleDisconnect}
               disabled={loading}
+              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
             >
-              {loading ? <CircularProgress size={24} /> : 'Disconnect Telegram'}
+              {loading ? <CircularProgress size={20} /> : 'Disconnect Telegram'}
             </Button>
           </Box>
         ) : (
-          <Box>
+          <Stack direction="row" spacing={1.5}>
             <Button
               variant="contained"
               startIcon={<TelegramIcon />}
               onClick={handleOpenBot}
-              sx={{ bgcolor: '#0088cc', '&:hover': { bgcolor: '#006699' }, mb: 2, mr: 2 }}
+              sx={{ 
+                bgcolor: '#0088cc', 
+                borderRadius: 2, 
+                textTransform: 'none', 
+                fontWeight: 600,
+                '&:hover': { bgcolor: '#006699' } 
+              }}
             >
               Open Telegram Bot
             </Button>
             <Button
               variant="outlined"
               onClick={() => setOpenDialog(true)}
+              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
             >
               Enter Chat ID Manually
             </Button>
-          </Box>
+          </Stack>
         )}
 
         {/* Manual Chat ID Dialog */}
-        <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth>
-          <DialogTitle>Connect Telegram</DialogTitle>
+        <Dialog 
+          open={openDialog} 
+          onClose={() => setOpenDialog(false)} 
+          maxWidth="sm" 
+          fullWidth
+          PaperProps={{ sx: { borderRadius: 3 } }}
+        >
+          <DialogTitle sx={{ fontWeight: 700 }}>Connect Telegram</DialogTitle>
           <DialogContent>
-            <Typography variant="body2" sx={{ mb: 2 }}>
+            <Typography variant="body2" sx={{ mb: 2, color: '#475569' }}>
               <strong>How to get your Chat ID:</strong>
             </Typography>
-            <Stepper activeStep={-1} orientation="vertical">
-              <Step>
-                <StepLabel>
-                  1. Open Telegram and search for <strong>@userinfobot</strong>
-                </StepLabel>
-              </Step>
-              <Step>
-                <StepLabel>
-                  2. Click <strong>Start</strong> and send <code>/start</code>
-                </StepLabel>
-              </Step>
-              <Step>
-                <StepLabel>
-                  3. Copy the number next to <strong>"Id"</strong>
-                </StepLabel>
-              </Step>
-              <Step>
-                <StepLabel>
-                  4. Paste it below and click Connect
-                </StepLabel>
-              </Step>
+            <Stepper activeStep={-1} orientation="vertical" sx={{ mb: 2 }}>
+              {[
+                'Open Telegram and search for @userinfobot',
+                'Click Start and send /start',
+                'Copy the number next to "Id"',
+                'Paste it below and click Connect',
+              ].map((step, i) => (
+                <Step key={i}>
+                  <StepLabel>
+                    <Typography variant="body2">{step}</Typography>
+                  </StepLabel>
+                </Step>
+              ))}
             </Stepper>
-
+            
             <TextField
               fullWidth
               label="Your Telegram Chat ID"
               value={chatId}
               onChange={(e) => setChatId(e.target.value)}
-              sx={{ mt: 3 }}
-              helperText="Example: 123456789"
-              placeholder="Enter your Chat ID"
+              sx={{ mt: 2 }}
+              placeholder="Enter your Chat ID (e.g., 123456789)"
+              size="small"
+              InputProps={{ sx: { borderRadius: 2 } }}
+              onKeyPress={(e) => e.key === 'Enter' && handleConnect()}
             />
           </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
+          <DialogActions sx={{ p: 2, pt: 0 }}>
+            <Button 
+              onClick={() => setOpenDialog(false)}
+              sx={{ borderRadius: 2, textTransform: 'none' }}
+            >
+              Cancel
+            </Button>
             <Button
               variant="contained"
               onClick={handleConnect}
-              disabled={loading || !chatId}
-              startIcon={loading ? <CircularProgress size={20} /> : <TelegramIcon />}
+              disabled={loading || !chatId.trim()}
+              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
             >
-              Connect
+              {loading ? <CircularProgress size={20} /> : 'Connect'}
             </Button>
           </DialogActions>
         </Dialog>

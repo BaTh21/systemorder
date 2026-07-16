@@ -142,22 +142,30 @@ async def get_order(
     current_user = Depends(get_current_user), 
     db: AsyncSession = Depends(get_db)
 ):
-    """Get order by ID with items - Admin can see any order"""
-    result = await db.execute(
-        select(Order)
-        .options(selectinload(Order.items))
-        .where(Order.id == order_id)
+    """Get order by ID - Customers see only their orders, Admins see all"""
+    
+    # Build query with eager loading
+    query = select(Order).options(
+        selectinload(Order.items),
+        selectinload(Order.user)
     )
+    
+    # If not admin, only show their own orders
+    if current_user.role != "admin":
+        query = query.where(
+            Order.id == order_id,
+            Order.user_id == current_user.id
+        )
+    else:
+        query = query.where(Order.id == order_id)
+    
+    result = await db.execute(query)
     order = result.scalars().first()
     
     if not order:
         raise HTTPException(404, "Order not found")
     
-    # Admin can see any order, regular users only their own
-    if current_user.role != "admin" and order.user_id != current_user.id:
-        raise HTTPException(404, "Order not found")
-    
-    # Build items list
+    # Build response
     items_list = []
     for item in (order.items or []):
         items_list.append({
@@ -187,6 +195,7 @@ async def get_order(
         "updated_at": str(order.updated_at) if order.updated_at else None,
         "items": items_list
     }
+
 
 @router.post("/{order_id}/payment-proof")
 async def upload_payment_proof(
