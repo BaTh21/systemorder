@@ -50,12 +50,18 @@ const OrderDetailPage = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get(`/orders/${orderId}`);
+      // Try admin endpoint first, fallback to user endpoint
+      let response;
+      try {
+        response = await api.get(`/admin/orders/${orderId}`);
+      } catch {
+        response = await api.get(`/orders/${orderId}`);
+      }
       console.log('Order detail:', response.data);
       setOrder(response.data);
     } catch (error) {
       console.error('Error fetching order:', error);
-      setError('Failed to load order details');
+      setError('Failed to load order details. Order may not exist or you do not have permission.');
     } finally {
       setLoading(false);
     }

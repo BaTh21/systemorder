@@ -1,5 +1,5 @@
 # app/routers/admin.py
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import cloudinary
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Form
@@ -19,6 +19,7 @@ from app.models.category import Category
 from app.core.config import settings
 from app.utils import slugify
 from sqlalchemy.orm import selectinload
+from app.models.order import Order, OrderStatus, OrderItem
 from app.services.telegram import send_order_status_update
 from app.services.cloudinary_service import upload_image
 
@@ -862,3 +863,287 @@ async def update_payment_info(
             shutil.copyfileobj(qr_code.file, buffer)
     
     return {"message": "Payment info updated"}
+
+
+@router.get("/dashboard/live")
+async def dashboard_live_stats(db: AsyncSession = Depends(get_db)):
+    """Get live dashboard statistics"""
+    
+    today = datetime.utcnow().date()
+    today_start = datetime.combine(today, datetime.min.time())
+    
+    # ===== REVENUE (Excluding Cancelled) =====
+    
+    # Total Revenue = All orders EXCEPT cancelled
+    total_revenue = (await db.execute(
+        select(func.coalesce(func.sum(Order.total), 0))
+        .where(Order.status != OrderStatus.cancelled)
+    )).scalar() or 0
+    
+    # Completed Revenue
+    completed_revenue = (await db.execute(
+        select(func.coalesce(func.sum(Order.total), 0))
+        .where(Order.status == OrderStatus.completed)
+    )).scalar() or 0
+    
+    # Active Revenue (not completed yet, not cancelled)
+    active_revenue = (await db.execute(
+        select(func.coalesce(func.sum(Order.total), 0))
+        .where(
+            Order.status != OrderStatus.cancelled,
+            Order.status != OrderStatus.completed
+        )
+    )).scalar() or 0
+    
+    # Today's Revenue (exclude cancelled)
+    today_revenue = (await db.execute(
+        select(func.coalesce(func.sum(Order.total), 0))
+        .where(
+            Order.created_at >= today_start,
+            Order.status != OrderStatus.cancelled
+        )
+    )).scalar() or 0
+    
+    # Today's Completed Revenue
+    today_completed = (await db.execute(
+        select(func.coalesce(func.sum(Order.total), 0))
+        .where(
+            Order.status == OrderStatus.completed,
+            Order.updated_at >= today_start
+        )
+    )).scalar() or 0
+    
+    # ===== ORDER COUNTS =====
+    
+    # Total orders (excluding cancelled)
+    total_orders = (await db.execute(
+        select(func.count(Order.id))
+        .where(Order.status != OrderStatus.cancelled)
+    )).scalar() or 0
+    
+    # All orders including cancelled (for admin reference)
+    all_orders_including_cancelled = (await db.execute(
+        select(func.count(Order.id))
+    )).scalar() or 0
+    
+    # Today's orders (excluding cancelled)
+    today_orders = (await db.execute(
+        select(func.count(Order.id))
+        .where(
+            Order.created_at >= today_start,
+            Order.status != OrderStatus.cancelled
+        )
+    )).scalar() or 0
+    
+    # Completed orders
+    completed_orders = (await db.execute(
+        select(func.count(Order.id))
+        .where(Order.status == OrderStatus.completed)
+    )).scalar() or 0
+    
+    # Cancelled orders
+    cancelled_orders = (await db.execute(
+        select(func.count(Order.id))
+        .where(Order.status == OrderStatus.cancelled)
+    )).scalar() or 0
+    
+    # Pending orders (needs attention)
+    pending_orders_count = (await db.execute(
+        select(func.count(Order.id))
+        .where(Order.status.in_([
+            OrderStatus.pending,
+            OrderStatus.waiting_payment,
+        ]))
+    )).scalar() or 0
+    
+    # ===== PRODUCT STATS =====
+    active_products = (await db.execute(
+        select(func.count(Product.id))
+        .where(Product.is_active == True)
+    )).scalar() or 0
+    
+    low_stock = (await db.execute(
+        select(func.count(Product.id))
+        .where(Product.is_active == True, Product.stock > 0, Product.stock <= 10)
+    )).scalar() or 0
+    
+    out_of_stock = (await db.execute(
+        select(func.count(Product.id))
+        .where(Product.is_active == True, Product.stock == 0)
+    )).scalar() or 0
+    
+    # ===== CUSTOMER STATS =====
+    total_customers = (await db.execute(
+        select(func.count(User.id))
+        .where(User.role == "customer")
+    )).scalar() or 0
+    
+    new_customers_today = (await db.execute(
+        select(func.count(User.id))
+        .where(User.role == "customer", User.created_at >= today_start)
+    )).scalar() or 0
+    
+    # ===== RECENT ORDERS =====
+    recent_orders_result = await db.execute(
+        select(Order)
+        .options(selectinload(Order.user))
+        .order_by(Order.created_at.desc())  # Latest first
+        .limit(15)
+    )
+    recent_orders = recent_orders_result.unique().scalars().all()
+    
+    recent_orders_list = []
+    for order in recent_orders:
+        recent_orders_list.append({
+            "id": order.id,
+            "customer": order.user.full_name if order.user else "N/A",
+            "total": float(order.total) if order.total else 0,
+            "status": str(order.status.value) if hasattr(order.status, 'value') else str(order.status),
+            "created_at": str(order.created_at),
+        })
+    
+    # ===== REVENUE CHART (Last 7 days - Exclude cancelled) =====
+    revenue_chart = []
+    for i in range(6, -1, -1):
+        date = today - timedelta(days=i)
+        day_start = datetime.combine(date, datetime.min.time())
+        day_end = datetime.combine(date + timedelta(days=1), datetime.min.time())
+        
+        # Day revenue (excluding cancelled)
+        day_revenue = (await db.execute(
+            select(func.coalesce(func.sum(Order.total), 0))
+            .where(
+                Order.created_at >= day_start,
+                Order.created_at < day_end,
+                Order.status != OrderStatus.cancelled
+            )
+        )).scalar() or 0
+        
+        # Day completed revenue
+        day_completed = (await db.execute(
+            select(func.coalesce(func.sum(Order.total), 0))
+            .where(
+                Order.status == OrderStatus.completed,
+                Order.updated_at >= day_start,
+                Order.updated_at < day_end
+            )
+        )).scalar() or 0
+        
+        # Day orders count (excluding cancelled)
+        day_orders = (await db.execute(
+            select(func.count(Order.id))
+            .where(
+                Order.created_at >= day_start,
+                Order.created_at < day_end,
+                Order.status != OrderStatus.cancelled
+            )
+        )).scalar() or 0
+        
+        revenue_chart.append({
+            "date": date.strftime("%a %d"),
+            "revenue": float(day_revenue),
+            "completed": float(day_completed),
+            "orders": day_orders,
+        })
+    
+    # ===== TOP PRODUCTS (Only from non-cancelled orders) =====
+    top_products = []
+    try:
+        top_result = await db.execute(
+            select(
+                OrderItem.product_name_snapshot,
+                func.sum(OrderItem.quantity).label('qty'),
+                func.sum(OrderItem.total_price).label('rev')
+            )
+            .join(Order, OrderItem.order_id == Order.id)
+            .where(Order.status != OrderStatus.cancelled)
+            .group_by(OrderItem.product_name_snapshot)
+            .order_by(func.sum(OrderItem.total_price).desc())
+            .limit(5)
+        )
+        top_products = [
+            {"name": row[0], "quantity": int(row[1]), "revenue": float(row[2])}
+            for row in top_result.all() if row[0]
+        ]
+    except:
+        pass
+    
+    return {
+        "stats": {
+            "total_revenue": float(total_revenue),           # Excludes cancelled
+            "completed_revenue": float(completed_revenue),   # Only completed
+            "active_revenue": float(active_revenue),         # In progress
+            "today_revenue": float(today_revenue),           # Today's (excl cancelled)
+            "today_completed": float(today_completed),       # Today's completed
+            "total_orders": total_orders,                    # Excludes cancelled
+            "all_orders": all_orders_including_cancelled,    # Including cancelled
+            "today_orders": today_orders,
+            "completed_orders": completed_orders,
+            "cancelled_orders": cancelled_orders,
+            "pending_orders": pending_orders_count,
+            "active_products": active_products,
+            "low_stock": low_stock,
+            "out_of_stock": out_of_stock,
+            "total_customers": total_customers,
+            "new_customers_today": new_customers_today,
+        },
+        "recent_orders": recent_orders_list,
+        "revenue_chart": revenue_chart,
+        "top_products": top_products,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    
+@router.get("/orders/{order_id}")
+async def admin_get_order(
+    order_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Admin: Get any order with full details"""
+    result = await db.execute(
+        select(Order)
+        .options(
+            selectinload(Order.items),
+            selectinload(Order.user)
+        )
+        .where(Order.id == order_id)
+    )
+    order = result.scalars().first()
+    
+    if not order:
+        raise HTTPException(404, "Order not found")
+    
+    items_list = []
+    for item in (order.items or []):
+        items_list.append({
+            "id": item.id,
+            "product_id": item.product_id,
+            "variant_id": item.variant_id,
+            "product_name_snapshot": item.product_name_snapshot,
+            "unit_price": float(item.unit_price),
+            "quantity": item.quantity,
+            "total_price": float(item.total_price)
+        })
+    
+    return {
+        "id": order.id,
+        "user_id": order.user_id,
+        "user": {
+            "id": order.user.id,
+            "full_name": order.user.full_name,
+            "email": order.user.email,
+            "phone": order.user.phone,
+        } if order.user else None,
+        "status": str(order.status.value) if hasattr(order.status, 'value') else str(order.status),
+        "subtotal": float(order.subtotal) if order.subtotal else 0,
+        "shipping_fee": float(order.shipping_fee) if order.shipping_fee else 0,
+        "service_fee": float(order.service_fee) if order.service_fee else 0,
+        "total": float(order.total) if order.total else 0,
+        "shipping_address": order.shipping_address,
+        "customer_notes": order.customer_notes,
+        "payment_method": order.payment_method,
+        "payment_receipt_url": order.payment_receipt_url,
+        "tracking_number": order.tracking_number,
+        "created_at": str(order.created_at),
+        "updated_at": str(order.updated_at) if order.updated_at else None,
+        "items": items_list
+    }

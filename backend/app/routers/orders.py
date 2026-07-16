@@ -142,7 +142,7 @@ async def get_order(
     current_user = Depends(get_current_user), 
     db: AsyncSession = Depends(get_db)
 ):
-    """Get order by ID with items"""
+    """Get order by ID with items - Admin can see any order"""
     result = await db.execute(
         select(Order)
         .options(selectinload(Order.items))
@@ -150,7 +150,11 @@ async def get_order(
     )
     order = result.scalars().first()
     
-    if not order or order.user_id != current_user.id:
+    if not order:
+        raise HTTPException(404, "Order not found")
+    
+    # Admin can see any order, regular users only their own
+    if current_user.role != "admin" and order.user_id != current_user.id:
         raise HTTPException(404, "Order not found")
     
     # Build items list

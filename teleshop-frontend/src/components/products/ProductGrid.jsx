@@ -1,10 +1,8 @@
-import { useState } from 'react';
+// src/components/products/ProductGrid.jsx
 import {
   Grid,
   Box,
   Typography,
-  ToggleButtonGroup,
-  ToggleButton,
   FormControl,
   InputLabel,
   Select,
@@ -14,8 +12,6 @@ import {
   Alert,
 } from '@mui/material';
 import {
-  ViewList,
-  ViewModule,
   Sort,
 } from '@mui/icons-material';
 import ProductCard from './ProductCard';
@@ -31,14 +27,6 @@ const ProductGrid = ({
   onSortChange,
   totalProducts = 0,
 }) => {
-  const [viewMode, setViewMode] = useState('grid');
-
-  const handleViewModeChange = (event, newViewMode) => {
-    if (newViewMode !== null) {
-      setViewMode(newViewMode);
-    }
-  };
-
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 8 }}>
@@ -83,64 +71,31 @@ const ProductGrid = ({
           gap: 2,
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Typography variant="body2" color="text.secondary">
-            {totalProducts} product{totalProducts !== 1 ? 's' : ''} found
-          </Typography>
-        </Box>
+        <Typography variant="body2" color="text.secondary">
+          {totalProducts} product{totalProducts !== 1 ? 's' : ''} found
+        </Typography>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          {/* Sort Select */}
-          <FormControl size="small" sx={{ minWidth: 150 }}>
-            <InputLabel>Sort By</InputLabel>
-            <Select
-              value={sortBy}
-              label="Sort By"
-              onChange={(e) => onSortChange?.(e.target.value)}
-              startAdornment={<Sort sx={{ mr: 1, color: 'text.secondary' }} />}
-            >
-              <MenuItem value="newest">Newest</MenuItem>
-              <MenuItem value="price_asc">Price: Low to High</MenuItem>
-              <MenuItem value="price_desc">Price: High to Low</MenuItem>
-              <MenuItem value="name_asc">Name: A to Z</MenuItem>
-              <MenuItem value="name_desc">Name: Z to A</MenuItem>
-            </Select>
-          </FormControl>
-
-          {/* View Mode Toggle */}
-          <ToggleButtonGroup
-            value={viewMode}
-            exclusive
-            onChange={handleViewModeChange}
-            size="small"
-            aria-label="view mode"
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <InputLabel>Sort By</InputLabel>
+          <Select
+            value={sortBy}
+            label="Sort By"
+            onChange={(e) => onSortChange?.(e.target.value)}
+            startAdornment={<Sort sx={{ mr: 1, color: 'text.secondary' }} />}
           >
-            <ToggleButton value="grid" aria-label="grid view">
-              <ViewModule />
-            </ToggleButton>
-            <ToggleButton value="list" aria-label="list view">
-              <ViewList />
-            </ToggleButton>
-          </ToggleButtonGroup>
-        </Box>
+            <MenuItem value="newest">Newest</MenuItem>
+            <MenuItem value="price_asc">Price: Low to High</MenuItem>
+            <MenuItem value="price_desc">Price: High to Low</MenuItem>
+            <MenuItem value="name_asc">Name: A to Z</MenuItem>
+            <MenuItem value="name_desc">Name: Z to A</MenuItem>
+          </Select>
+        </FormControl>
       </Box>
 
-      {/* Products Grid/List */}
-      {viewMode === 'grid' ? (
-        <Grid container spacing={3}>
-          {products.map((product) => (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={product.id}>
-              <ProductCard product={product} variant="grid" />
-            </Grid>
-          ))}
-        </Grid>
-      ) : (
-        <Box>
-          {products.map((product) => (
-            <ProductCard key={product.id} product={product} variant="list" />
-          ))}
-        </Box>
-      )}
+      {/* Products List - Full Width */}
+      {products.map((product) => (
+        <ProductCard key={product.id} product={product} />
+      ))}
 
       {/* Pagination */}
       {totalPages > 1 && (
