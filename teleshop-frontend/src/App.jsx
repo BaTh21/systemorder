@@ -18,6 +18,7 @@ import OrderDetailPage from './pages/OrderDetailPage';
 import AdminOrders from './pages/admin/AdminOrders';
 import AdminProducts from './pages/admin/AdminProducts';
 import AdminCustomers from './pages/admin/AdminCustomers';
+import ProfilePage from './pages/ProfilePage';
 
 const theme = createTheme({
   palette: {
@@ -79,6 +80,7 @@ function App() {
                     <AdminCustomers />
                   </PrivateRoute>
                 } />
+                <Route path="/profile" element={<ProfilePage />} />
               </Routes>
             </Layout>
           </CartProvider>

@@ -34,3 +34,8 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     phone: Optional[str] = None
     telegram_chat_id: Optional[str] = None
+    
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    telegram_chat_id: Optional[str] = None

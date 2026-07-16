@@ -1,29 +1,39 @@
-// src/pages/ProductsPage.jsx - Update the product rendering part
+// src/pages/ProductsPage.jsx
 import { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   Container,
   Typography,
   Box,
   Button,
   TextField,
-  MenuItem,
-  Drawer,
   Snackbar,
   Alert,
   Chip,
+  Stack,
+  Slider,
+  Divider,
+  Paper,
+  InputAdornment,
+  Grid,
+  FormControlLabel,
+  Checkbox,
+  List,
+  ListItemButton,
+  ListItemText,
+  Collapse,
 } from '@mui/material';
-import { FilterList } from '@mui/icons-material';
-import { useCart } from '../contexts/CartContext';
-import { useAuth } from '../contexts/AuthContext';
+import {
+  Search,
+  ExpandLess,
+  ExpandMore,
+  Star,
+} from '@mui/icons-material';
 import ProductGrid from '../components/products/ProductGrid';
 import api from '../api/axios';
 
 const ProductsPage = () => {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const { addToCart } = useCart();
-  const { user } = useAuth();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -38,8 +48,9 @@ const ProductsPage = () => {
     min_price: '',
     max_price: '',
   });
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [priceRange, setPriceRange] = useState([0, 5000]);
+  const [expandedCategories, setExpandedCategories] = useState({});
 
   useEffect(() => {
     fetchProducts();
@@ -50,29 +61,16 @@ const ProductsPage = () => {
     setLoading(true);
     setError(null);
     try {
-      const params = {
-        page,
-        limit: 12,
-        sort: sortBy,
-        ...filters,
-      };
-      // Remove empty params
+      const params = { page, limit: 12, sort: sortBy, ...filters };
       Object.keys(params).forEach(key => {
-        if (params[key] === '' || params[key] === null || params[key] === undefined) {
-          delete params[key];
-        }
+        if (!params[key]) delete params[key];
       });
-      
       const response = await api.get('/products', { params });
-      console.log('📦 Products response:', response.data);
-      console.log('📸 First product images:', response.data.items?.[0]?.images);
-      
       setProducts(response.data.items || []);
-      setTotalPages(Math.ceil((response.data.total || 0) / (response.data.limit || 12)));
+      setTotalPages(Math.ceil((response.data.total || 0) / 12));
       setTotalProducts(response.data.total || 0);
     } catch (error) {
-      console.error('Error fetching products:', error);
-      setError('Failed to load products. Please try again.');
+      setError('Failed to load products');
     } finally {
       setLoading(false);
     }
@@ -97,179 +95,173 @@ const ProductsPage = () => {
     setPage(1);
   };
 
-  const handleApplyFilters = () => {
+  const handleCategoryClick = (categoryId) => {
+    setFilters(f => ({ ...f, category_id: f.category_id === categoryId.toString() ? '' : categoryId.toString() }));
     setPage(1);
-    setDrawerOpen(false);
+  };
+
+  const handlePriceApply = () => {
+    setFilters(f => ({
+      ...f,
+      min_price: priceRange[0] > 0 ? priceRange[0].toString() : '',
+      max_price: priceRange[1] < 5000 ? priceRange[1].toString() : '',
+    }));
+    setPage(1);
   };
 
   const handleClearFilters = () => {
-    setFilters({
-      search: '',
-      category_id: '',
-      min_price: '',
-      max_price: '',
-    });
+    setFilters({ search: '', category_id: '', min_price: '', max_price: '' });
+    setPriceRange([0, 5000]);
     setPage(1);
-    setDrawerOpen(false);
   };
 
+  const toggleCategory = (slug) => {
+    setExpandedCategories(prev => ({ ...prev, [slug]: !prev[slug] }));
+  };
+
+  const mainCategories = categories.filter(c => !c.parent_id);
+  const activeFilterCount = Object.values(filters).filter(v => v).length;
+
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
-      {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-          <Typography variant="h4" component="h1" fontWeight="bold">
-            Products
-          </Typography>
-          <Button
-            variant="outlined"
-            startIcon={<FilterList />}
-            onClick={() => setDrawerOpen(true)}
-          >
-            Filters
-            {(filters.search || filters.category_id || filters.min_price || filters.max_price) && (
-              <Box
-                component="span"
-                sx={{
-                  ml: 1,
-                  bgcolor: 'primary.main',
-                  color: 'white',
-                  borderRadius: '50%',
-                  width: 20,
-                  height: 20,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '0.75rem',
+    <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh' }}>
+      <Container maxWidth="xl" sx={{ py: 3 }}>
+        <Grid container spacing={3}>
+          
+          {/* LEFT SIDEBAR - FILTERS */}
+          <Grid item xs={12} md={3}>
+            <Paper elevation={0} sx={{ p: 2.5, borderRadius: 2, border: '1px solid #e2e8f0', bgcolor: 'white', position: 'sticky', top: 80 }}>
+              
+              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                <Typography variant="subtitle1" fontWeight={700} color="#0f172a">Filters</Typography>
+                {activeFilterCount > 0 && (
+                  <Button size="small" onClick={handleClearFilters} sx={{ textTransform: 'none', fontSize: '0.75rem' }}>
+                    Clear All
+                  </Button>
+                )}
+              </Stack>
+
+              <Divider sx={{ mb: 2 }} />
+
+              <Typography variant="caption" fontWeight={600} color="#94a3b8" textTransform="uppercase" letterSpacing={1} mb={1} display="block">
+                Search
+              </Typography>
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="Search..."
+                value={filters.search}
+                onChange={(e) => { setFilters(f => ({ ...f, search: e.target.value })); setPage(1); }}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start"><Search sx={{ color: '#94a3b8', fontSize: 18 }} /></InputAdornment>,
                 }}
-              >
-                {Object.values(filters).filter(v => v !== '' && v !== null).length}
-              </Box>
-            )}
-          </Button>
-        </Box>
-        
-        {/* Active Filters */}
-        {Object.values(filters).some(v => v !== '' && v !== null) && (
-          <Box sx={{ display: 'flex', gap: 1, mt: 2, flexWrap: 'wrap' }}>
-            {filters.search && (
-              <Chip label={`Search: ${filters.search}`} onDelete={() => setFilters({ ...filters, search: '' })} />
-            )}
-            {filters.category_id && (
-              <Chip
-                label={`Category: ${categories.find(c => c.id === parseInt(filters.category_id))?.name || filters.category_id}`}
-                onDelete={() => setFilters({ ...filters, category_id: '' })}
+                sx={{ mb: 2.5, '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: '0.85rem' } }}
               />
-            )}
-            {filters.min_price && (
-              <Chip label={`Min: $${filters.min_price}`} onDelete={() => setFilters({ ...filters, min_price: '' })} />
-            )}
-            {filters.max_price && (
-              <Chip label={`Max: $${filters.max_price}`} onDelete={() => setFilters({ ...filters, max_price: '' })} />
-            )}
-          </Box>
-        )}
-      </Box>
 
-      {/* Product Grid */}
-      <ProductGrid
-        products={products}
-        loading={loading}
-        error={error}
-        totalPages={totalPages}
-        currentPage={page}
-        onPageChange={handlePageChange}
-        sortBy={sortBy}
-        onSortChange={handleSortChange}
-        totalProducts={totalProducts}
-      />
+              <Typography variant="caption" fontWeight={600} color="#94a3b8" textTransform="uppercase" letterSpacing={1} mb={1} display="block">
+                Categories
+              </Typography>
+              <List dense disablePadding sx={{ mb: 2.5 }}>
+                {mainCategories.map(cat => (
+                  <Box key={cat.id}>
+                    <ListItemButton onClick={() => toggleCategory(cat.slug)} sx={{ borderRadius: 1, mb: 0.5, py: 0.5 }}>
+                      <ListItemText primary={cat.name} primaryTypographyProps={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }} />
+                      {expandedCategories[cat.slug] ? <ExpandLess sx={{ fontSize: 18 }} /> : <ExpandMore sx={{ fontSize: 18 }} />}
+                    </ListItemButton>
+                    <Collapse in={expandedCategories[cat.slug]}>
+                      <List dense disablePadding sx={{ pl: 2 }}>
+                        {categories.filter(sub => sub.parent_id === cat.id).map(sub => (
+                          <ListItemButton
+                            key={sub.id}
+                            onClick={() => handleCategoryClick(sub.id)}
+                            sx={{ borderRadius: 1, py: 0.3, bgcolor: filters.category_id === sub.id.toString() ? '#eff6ff' : 'transparent' }}
+                          >
+                            <ListItemText 
+                              primary={sub.name} 
+                              primaryTypographyProps={{ 
+                                fontSize: '0.8rem', 
+                                color: filters.category_id === sub.id.toString() ? '#2563eb' : '#64748b',
+                                fontWeight: filters.category_id === sub.id.toString() ? 600 : 400,
+                              }} 
+                            />
+                          </ListItemButton>
+                        ))}
+                      </List>
+                    </Collapse>
+                  </Box>
+                ))}
+              </List>
 
-      {/* Filter Drawer */}
-      <Drawer
-        anchor="right"
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        PaperProps={{ sx: { width: { xs: '100%', sm: 350 }, p: 3 } }}
-      >
-        <Typography variant="h6" gutterBottom fontWeight="bold">
-          Filters
-        </Typography>
-        
-        <TextField
-          fullWidth
-          label="Search"
-          value={filters.search}
-          onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-          sx={{ mb: 2 }}
-        />
-        
-        <TextField
-          select
-          fullWidth
-          label="Category"
-          value={filters.category_id}
-          onChange={(e) => setFilters({ ...filters, category_id: e.target.value })}
-          sx={{ mb: 2 }}
+              <Divider sx={{ mb: 2 }} />
+
+              <Typography variant="caption" fontWeight={600} color="#94a3b8" textTransform="uppercase" letterSpacing={1} mb={1} display="block">
+                Price Range
+              </Typography>
+              <Slider
+                value={priceRange}
+                onChange={(e, v) => setPriceRange(v)}
+                onChangeCommitted={handlePriceApply}
+                min={0}
+                max={5000}
+                step={10}
+                size="small"
+                sx={{ color: '#2563eb', mb: 1 }}
+              />
+              <Stack direction="row" justifyContent="space-between" mb={2}>
+                <Typography variant="caption" color="#94a3b8">$0</Typography>
+                <Typography variant="caption" fontWeight={600} color="#2563eb">${priceRange[0]} - ${priceRange[1]}</Typography>
+                <Typography variant="caption" color="#94a3b8">$5000</Typography>
+              </Stack>
+
+              <Divider sx={{ mb: 2 }} />
+              <Typography variant="caption" fontWeight={600} color="#94a3b8" textTransform="uppercase" letterSpacing={1} mb={1} display="block">
+                Rating
+              </Typography>
+              {[4, 3, 2, 1].map(rating => (
+                <FormControlLabel
+                  key={rating}
+                  control={<Checkbox size="small" sx={{ py: 0.3 }} />}
+                  label={
+                    <Stack direction="row" spacing={0.5} alignItems="center">
+                      {[...Array(5)].map((_, i) => (
+                        <Star key={i} sx={{ fontSize: 14, color: i < rating ? '#f59e0b' : '#e2e8f0' }} />
+                      ))}
+                      <Typography variant="caption" color="#64748b">& up</Typography>
+                    </Stack>
+                  }
+                  sx={{ display: 'flex', mb: -0.5 }}
+                />
+              ))}
+            </Paper>
+          </Grid>
+
+          {/* RIGHT - PRODUCTS */}
+          <Grid item xs={12} md={9}>
+            <ProductGrid
+              products={products}
+              loading={loading}
+              error={error}
+              totalPages={totalPages}
+              currentPage={page}
+              onPageChange={handlePageChange}
+              sortBy={sortBy}
+              onSortChange={handleSortChange}
+              totalProducts={totalProducts}
+            />
+          </Grid>
+        </Grid>
+
+        <Snackbar
+          open={snackbar.open}
+          autoHideDuration={3000}
+          onClose={() => setSnackbar(s => ({ ...s, open: false }))}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         >
-          <MenuItem value="">All Categories</MenuItem>
-          {categories.map((cat) => (
-            <MenuItem key={cat.id} value={cat.id}>
-              {cat.name}
-            </MenuItem>
-          ))}
-        </TextField>
-
-        <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-          <TextField
-            fullWidth
-            type="number"
-            label="Min Price"
-            value={filters.min_price}
-            onChange={(e) => setFilters({ ...filters, min_price: e.target.value })}
-          />
-          <TextField
-            fullWidth
-            type="number"
-            label="Max Price"
-            value={filters.max_price}
-            onChange={(e) => setFilters({ ...filters, max_price: e.target.value })}
-          />
-        </Box>
-
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="contained"
-            fullWidth
-            onClick={handleApplyFilters}
-          >
-            Apply Filters
-          </Button>
-          <Button
-            variant="outlined"
-            fullWidth
-            onClick={handleClearFilters}
-          >
-            Clear All
-          </Button>
-        </Box>
-      </Drawer>
-
-      {/* Snackbar for cart notifications */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar({ ...snackbar, open: false })}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-      >
-        <Alert
-          onClose={() => setSnackbar({ ...snackbar, open: false })}
-          severity={snackbar.severity}
-          variant="filled"
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
-    </Container>
+          <Alert severity={snackbar.severity} variant="filled" sx={{ borderRadius: 2 }}>
+            {snackbar.message}
+          </Alert>
+        </Snackbar>
+      </Container>
+    </Box>
   );
 };
 

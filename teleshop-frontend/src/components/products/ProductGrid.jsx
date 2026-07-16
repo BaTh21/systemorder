@@ -1,6 +1,5 @@
 // src/components/products/ProductGrid.jsx
 import {
-  Grid,
   Box,
   Typography,
   FormControl,
