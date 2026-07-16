@@ -30,6 +30,9 @@ class ProfileUpdate(BaseModel):
     full_name: Optional[str] = None
     phone: Optional[str] = None
 
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
 
 @router.post(
     "/register",
@@ -184,24 +187,26 @@ async def update_profile(
 
 @router.put("/change-password")
 async def change_password(
-    data: dict,
+    data: PasswordChange,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Change user password"""
-    
-    current_password = data.get("current_password")
-    new_password = data.get("new_password")
-    
-    if not current_password or not new_password:
-        raise HTTPException(400, "Current password and new password are required")
-    
+
     # Verify current password
-    if not verify_password(current_password, current_user.hashed_password):
-        raise HTTPException(400, "Current password is incorrect")
+    if not verify_password(data.current_password, current_user.hashed_password):
+        print("   ❌ Current password is incorrect")
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    
+    # Validate new password
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
     
     # Update password
-    current_user.hashed_password = get_password_hash(new_password)
+    current_user.hashed_password = get_password_hash(data.new_password)
     await db.commit()
     
+    print(f"   ✅ Password changed successfully")
+    
     return {"message": "Password changed successfully"}
+

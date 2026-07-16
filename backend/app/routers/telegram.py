@@ -64,11 +64,16 @@ async def send_telegram_photo(chat_id: str, photo_path: str, caption: str = ""):
 
 @router.post("/connect")
 async def connect_telegram(
-    data: dict,
+    request: Request,  # Use Request to get JSON body
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Connect user's Telegram account"""
+    try:
+        data = await request.json()
+    except:
+        raise HTTPException(400, "Invalid request body")
+    
     chat_id = data.get("chat_id")
     if not chat_id:
         raise HTTPException(400, "chat_id is required")
@@ -77,22 +82,16 @@ async def connect_telegram(
     user.telegram_chat_id = str(chat_id)
     await db.commit()
     
-    # Send welcome message with payment info command
-    await send_telegram_message(
-        chat_id=chat_id,
-        text=f"✅ <b>Connected to TeleShop!</b>\n\n"
-             f"Welcome <b>{user.full_name}</b>!\n\n"
-             f"You will now receive:\n"
-             f"📦 Order confirmations\n"
-             f"💰 Payment requests with bank details\n"
-             f"🚚 Shipping updates with tracking\n"
-             f"📬 Delivery notifications\n\n"
-             f"<b>Commands:</b>\n"
-             f"/orders - View your orders\n"
-             f"/payment - Payment information\n"
-             f"/status - Order status guide\n"
-             f"/help - Get help"
-    )
+    # Send welcome message
+    try:
+        await send_telegram_message(
+            chat_id=chat_id,
+            text=f"✅ <b>Connected to TeleShop!</b>\n\n"
+                 f"Welcome <b>{user.full_name}</b>!\n\n"
+                 f"You will now receive order updates via Telegram."
+        )
+    except Exception as e:
+        print(f"⚠️ Could not send welcome message: {e}")
     
     return {"message": "Telegram connected successfully"}
 
@@ -104,16 +103,23 @@ async def disconnect_telegram(
     """Disconnect user's Telegram account"""
     user = await db.get(User, current_user.id)
     
-    if user.telegram_chat_id:
+    if not user.telegram_chat_id:
+        raise HTTPException(400, "Telegram is not connected")
+    
+    # Try to send goodbye message (don't fail if this fails)
+    try:
         await send_telegram_message(
             chat_id=user.telegram_chat_id,
             text="You have been disconnected from TeleShop notifications.\n\nSend /start to reconnect anytime."
         )
+    except Exception as e:
+        print(f"⚠️ Could not send disconnect message: {e}")
     
+    # Clear the telegram_chat_id
     user.telegram_chat_id = None
     await db.commit()
     
-    return {"message": "Telegram disconnected"}
+    return {"message": "Telegram disconnected successfully"}
 
 @router.post("/webhook")
 async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db)):
@@ -342,3 +348,4 @@ Use /orders to see your pending payments.
                 )
     
     return {"ok": True}
+

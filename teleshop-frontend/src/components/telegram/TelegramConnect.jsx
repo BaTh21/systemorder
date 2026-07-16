@@ -59,14 +59,17 @@ const TelegramConnect = () => {
 
   const handleDisconnect = async () => {
     setLoading(true);
+    setError('');
     try {
       await api.post('/telegram/disconnect');
       setConnected(false);
       setChatId('');
-      setSuccess('Telegram disconnected');
+      setSuccess('Telegram disconnected successfully');
       fetchUser(); // Refresh user data
     } catch (error) {
-      setError('Failed to disconnect Telegram');
+      console.error('Disconnect error:', error);
+      const errorMsg = error.response?.data?.detail || 'Failed to disconnect Telegram';
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -74,7 +77,7 @@ const TelegramConnect = () => {
 
   const handleOpenBot = () => {
     // Open Telegram bot to get Chat ID
-    window.open('https://t.me/TeleShopBot', '_blank');
+    window.open('https://t.me/ecommerce_system_bot', '_blank');
   };
 
   return (
@@ -168,7 +171,7 @@ const TelegramConnect = () => {
                 </StepLabel>
               </Step>
             </Stepper>
-            
+
             <TextField
               fullWidth
               label="Your Telegram Chat ID"

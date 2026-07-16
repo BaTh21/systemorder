@@ -16,6 +16,12 @@ import {
   Tabs,
   Tab,
   CircularProgress,
+  InputAdornment,
+  IconButton,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
 import {
   Person,
@@ -26,6 +32,11 @@ import {
   Security,
   ShoppingBag,
   Notifications,
+  Visibility,
+  VisibilityOff,
+  Lock,
+  VpnKey,
+  CheckCircle,
 } from '@mui/icons-material';
 import { Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -51,6 +62,12 @@ const ProfilePage = () => {
     confirm_password: '',
   });
   const [changingPassword, setChangingPassword] = useState(false);
+  const [showPasswords, setShowPasswords] = useState({
+    current: false,
+    new: false,
+    confirm: false,
+  });
+  const [passwordErrors, setPasswordErrors] = useState({});
 
   useEffect(() => {
     if (user) {
@@ -88,7 +105,6 @@ const ProfilePage = () => {
         phone: formData.phone,
       });
 
-      // Refresh user data
       const userResponse = await api.get('/auth/me');
       if (userResponse.data) {
         setFormData({
@@ -108,15 +124,29 @@ const ProfilePage = () => {
     }
   };
 
+  const validatePassword = () => {
+    const errors = {};
+    if (!passwordData.current_password) {
+      errors.current_password = 'Current password is required';
+    }
+    if (!passwordData.new_password) {
+      errors.new_password = 'New password is required';
+    } else if (passwordData.new_password.length < 6) {
+      errors.new_password = 'Password must be at least 6 characters';
+    } else if (passwordData.new_password === passwordData.current_password) {
+      errors.new_password = 'New password must be different from current';
+    }
+    if (!passwordData.confirm_password) {
+      errors.confirm_password = 'Please confirm your password';
+    } else if (passwordData.new_password !== passwordData.confirm_password) {
+      errors.confirm_password = 'Passwords do not match';
+    }
+    setPasswordErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handlePasswordChange = async () => {
-    if (passwordData.new_password !== passwordData.confirm_password) {
-      setSnackbar({ open: true, message: 'Passwords do not match', severity: 'error' });
-      return;
-    }
-    if (passwordData.new_password.length < 6) {
-      setSnackbar({ open: true, message: 'Password must be at least 6 characters', severity: 'error' });
-      return;
-    }
+    if (!validatePassword()) return;
 
     setChangingPassword(true);
     try {
@@ -125,12 +155,18 @@ const ProfilePage = () => {
         new_password: passwordData.new_password,
       });
       setPasswordData({ current_password: '', new_password: '', confirm_password: '' });
+      setPasswordErrors({});
       setSnackbar({ open: true, message: 'Password changed successfully!', severity: 'success' });
     } catch (error) {
-      setSnackbar({ open: true, message: error.response?.data?.detail || 'Failed to change password', severity: 'error' });
+      const errorMsg = error.response?.data?.detail || 'Failed to change password. Check your current password.';
+      setSnackbar({ open: true, message: errorMsg, severity: 'error' });
     } finally {
       setChangingPassword(false);
     }
+  };
+
+  const togglePasswordVisibility = (field) => {
+    setShowPasswords(prev => ({ ...prev, [field]: !prev[field] }));
   };
 
   const statusColors = {
@@ -342,67 +378,141 @@ const ProfilePage = () => {
               </Box>
             )}
 
-            {/* Security Tab */}
+            {/* Security Tab - Password Change */}
             {tabValue === 2 && (
               <Box>
-                <Typography variant="h6" fontWeight={600} color="#0f172a" mb={3}>
+                <Typography variant="h6" fontWeight={600} color="#0f172a" mb={1}>
                   Change Password
                 </Typography>
+                <Typography variant="body2" color="#94a3b8" mb={3}>
+                  Choose a strong password that you don't use elsewhere
+                </Typography>
 
-                <Grid container spacing={2.5} maxWidth={500}>
-                  <Grid item xs={12}>
-                    <Typography variant="caption" fontWeight={600} color="#94a3b8" textTransform="uppercase" letterSpacing={1}>
-                      Current Password
+                <Box maxWidth={500}>
+                  {/* Password Requirements */}
+                  <Paper variant="outlined" sx={{ p: 2, mb: 3, borderRadius: 2, borderColor: '#e2e8f0', bgcolor: '#f8fafc' }}>
+                    <Typography variant="caption" fontWeight={600} color="#0f172a" gutterBottom display="block">
+                      Password Requirements:
                     </Typography>
-                    <TextField
-                      fullWidth
-                      type="password"
-                      value={passwordData.current_password}
-                      onChange={(e) => setPasswordData({ ...passwordData, current_password: e.target.value })}
-                      size="small"
-                      sx={{ mt: 0.5, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                    />
-                  </Grid>
+                    <List dense disablePadding>
+                      {[
+                        { text: 'At least 6 characters long', valid: passwordData.new_password.length >= 6 },
+                        { text: 'Different from current password', valid: passwordData.new_password && passwordData.new_password !== passwordData.current_password },
+                        { text: 'Passwords match', valid: passwordData.new_password && passwordData.new_password === passwordData.confirm_password },
+                      ].map((req, i) => (
+                        <ListItem key={i} sx={{ py: 0.3 }}>
+                          <ListItemIcon sx={{ minWidth: 28 }}>
+                            <CheckCircle sx={{ fontSize: 16, color: req.valid ? '#22c55e' : '#e2e8f0' }} />
+                          </ListItemIcon>
+                          <ListItemText 
+                            primary={req.text} 
+                            primaryTypographyProps={{ 
+                              fontSize: '0.8rem', 
+                              color: req.valid ? '#475569' : '#94a3b8' 
+                            }} 
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  </Paper>
 
-                  <Grid item xs={12}>
-                    <Typography variant="caption" fontWeight={600} color="#94a3b8" textTransform="uppercase" letterSpacing={1}>
-                      New Password
-                    </Typography>
-                    <TextField
-                      fullWidth
-                      type="password"
-                      value={passwordData.new_password}
-                      onChange={(e) => setPasswordData({ ...passwordData, new_password: e.target.value })}
-                      size="small"
-                      sx={{ mt: 0.5, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                    />
-                  </Grid>
+                  {/* Current Password */}
+                  <Typography variant="caption" fontWeight={600} color="#94a3b8" textTransform="uppercase" letterSpacing={1} mb={0.5} display="block">
+                    Current Password
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    type={showPasswords.current ? 'text' : 'password'}
+                    value={passwordData.current_password}
+                    onChange={(e) => setPasswordData({ ...passwordData, current_password: e.target.value })}
+                    error={!!passwordErrors.current_password}
+                    helperText={passwordErrors.current_password}
+                    size="small"
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Lock sx={{ color: '#94a3b8', fontSize: 20 }} />
+                        </InputAdornment>
+                      ),
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton size="small" onClick={() => togglePasswordVisibility('current')}>
+                            {showPasswords.current ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                  />
 
-                  <Grid item xs={12}>
-                    <Typography variant="caption" fontWeight={600} color="#94a3b8" textTransform="uppercase" letterSpacing={1}>
-                      Confirm New Password
-                    </Typography>
-                    <TextField
-                      fullWidth
-                      type="password"
-                      value={passwordData.confirm_password}
-                      onChange={(e) => setPasswordData({ ...passwordData, confirm_password: e.target.value })}
-                      size="small"
-                      sx={{ mt: 0.5, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                    />
-                  </Grid>
+                  {/* New Password */}
+                  <Typography variant="caption" fontWeight={600} color="#94a3b8" textTransform="uppercase" letterSpacing={1} mb={0.5} display="block" mt={2.5}>
+                    New Password
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    type={showPasswords.new ? 'text' : 'password'}
+                    value={passwordData.new_password}
+                    onChange={(e) => setPasswordData({ ...passwordData, new_password: e.target.value })}
+                    error={!!passwordErrors.new_password}
+                    helperText={passwordErrors.new_password}
+                    size="small"
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <VpnKey sx={{ color: '#94a3b8', fontSize: 20 }} />
+                        </InputAdornment>
+                      ),
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton size="small" onClick={() => togglePasswordVisibility('new')}>
+                            {showPasswords.new ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                  />
 
-                  <Grid item xs={12}>
-                    <Button
-                      variant="contained"
-                      onClick={handlePasswordChange}
-                      disabled={!passwordData.current_password || !passwordData.new_password || !passwordData.confirm_password || changingPassword}
-                      sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
-                    >
-                      {changingPassword ? <CircularProgress size={20} /> : 'Update Password'}
-                    </Button>
-                  </Grid>
-                </Grid>
+                  {/* Confirm Password */}
+                  <Typography variant="caption" fontWeight={600} color="#94a3b8" textTransform="uppercase" letterSpacing={1} mb={0.5} display="block" mt={2.5}>
+                    Confirm New Password
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    type={showPasswords.confirm ? 'text' : 'password'}
+                    value={passwordData.confirm_password}
+                    onChange={(e) => setPasswordData({ ...passwordData, confirm_password: e.target.value })}
+                    error={!!passwordErrors.confirm_password}
+                    helperText={passwordErrors.confirm_password}
+                    size="small"
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <VpnKey sx={{ color: '#94a3b8', fontSize: 20 }} />
+                        </InputAdornment>
+                      ),
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton size="small" onClick={() => togglePasswordVisibility('confirm')}>
+                            {showPasswords.confirm ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                  />
+
+                  <Button
+                    variant="contained"
+                    fullWidth
+                    onClick={handlePasswordChange}
+                    disabled={!passwordData.current_password || !passwordData.new_password || !passwordData.confirm_password || changingPassword}
+                    sx={{ mt: 3, borderRadius: 2, textTransform: 'none', fontWeight: 600, py: 1.2 }}
+                  >
+                    {changingPassword ? <CircularProgress size={20} /> : 'Update Password'}
+                  </Button>
+                </Box>
               </Box>
             )}
 
