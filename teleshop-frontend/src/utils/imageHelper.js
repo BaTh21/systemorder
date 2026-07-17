@@ -3,19 +3,22 @@
 export const getImageUrl = (imageUrl) => {
     if (!imageUrl) return getPlaceholderImage();
     
-    // Full URLs - return as is
+    // Full URLs (Cloudinary, etc.) - return as is
     if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
         return imageUrl;
     }
     
-    // Use VITE_API_URL or VITE_BACKEND_URL
+    // Local paths - use backend URL
     const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
     
+    // Remove trailing slash from base URL if present
+    const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+    
     if (imageUrl.startsWith('/')) {
-        return `${API_BASE_URL}${imageUrl}`;
+        return `${base}${imageUrl}`;
     }
     
-    return `${API_BASE_URL}/${imageUrl}`;
+    return `${base}/${imageUrl}`;
 };
 
 export const getPlaceholderImage = (w = 300, h = 300) => {
