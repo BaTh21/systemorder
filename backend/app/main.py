@@ -4,12 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.routers import auth, products, categories, cart, orders, admin, telegram
-from app.core.database import engine, async_session
+from app.core.database import engine, async_session, DATABASE_URL
 from app.models.base import Base
 from app.models.user import User, UserRole
 from app.core.security import get_password_hash
-from sqlalchemy import select
-import httpx
+from sqlalchemy import select, create_engine, text
 import os
 
 # Create upload directories
@@ -17,10 +16,10 @@ os.makedirs("uploads/products", exist_ok=True)
 os.makedirs("uploads/categories", exist_ok=True)
 os.makedirs("uploads/payments", exist_ok=True)
 
-# Create app ONCE
+# Create app
 app = FastAPI(title="TeleShop API")
 
-# CORS - MUST be before static files mount
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -29,7 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files AFTER CORS
+# Mount static files
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.get("/")
@@ -42,29 +41,34 @@ async def root():
 
 @app.on_event("startup")
 async def startup_event():
-    # Create database tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
-    # Auto-create admin user
-    async with async_session() as db:
-        result = await db.execute(select(User).where(User.role == UserRole.admin))
-        admin_user = result.scalars().first()
+    try:
+        # Try to create tables
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        print("✅ Database tables created")
         
-        if not admin_user:
-            admin = User(
-                email="admin@gmail.com",
-                hashed_password=get_password_hash("admin123"),
-                full_name="Admin",
-                phone="15274578",
-                role=UserRole.admin,
-                is_active=True
-            )
-            db.add(admin)
-            await db.commit()
-            print("✅ Admin user created")
-        else:
-            print("✅ Admin user already exists")
+        # Create admin user
+        async with async_session() as db:
+            result = await db.execute(select(User).where(User.role == UserRole.admin))
+            admin_user = result.scalars().first()
+            
+            if not admin_user:
+                admin = User(
+                    email="admin@gmail.com",
+                    hashed_password=get_password_hash("admin123"),
+                    full_name="Admin",
+                    phone="15274578",
+                    role=UserRole.admin,
+                    is_active=True
+                )
+                db.add(admin)
+                await db.commit()
+                print("✅ Admin user created")
+            else:
+                print("✅ Admin user already exists")
+    except Exception as e:
+        print(f"⚠️ Database initialization error: {e}")
+        print("   The app will continue running. Database may need manual setup.")
 
 # Include routers
 app.include_router(auth.router, prefix="/api")
