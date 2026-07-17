@@ -10,16 +10,15 @@ from app.models.user import User, UserRole
 from app.core.security import get_password_hash
 from sqlalchemy import select, create_engine, text
 import os
+import asyncio
 
 # Create upload directories
 os.makedirs("uploads/products", exist_ok=True)
 os.makedirs("uploads/categories", exist_ok=True)
 os.makedirs("uploads/payments", exist_ok=True)
 
-# Create app
 app = FastAPI(title="TeleShop API")
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -28,31 +27,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.get("/")
 async def root():
-    return {
-        "message": "TeleShop API is running!",
-        "docs": "/docs",
-        "api": "/api"
-    }
+    return {"message": "TeleShop API is running!", "docs": "/docs"}
+
+def create_database_if_not_exists():
+    """Create database if it doesn't exist"""
+    try:
+        # Get the sync URL (without +asyncpg)
+        sync_url = DATABASE_URL.replace("+asyncpg", "")
+        
+        # Extract database name
+        db_name = sync_url.split("/")[-1].split("?")[0]
+        
+        # Connect to default 'postgres' database
+        base_url = sync_url.rsplit("/", 1)[0] + "/postgres"
+        
+        sync_engine = create_engine(base_url)
+        with sync_engine.connect() as conn:
+            conn.execution_options(isolation_level="AUTOCOMMIT")
+            result = conn.execute(text(f"SELECT 1 FROM pg_database WHERE datname = '{db_name}'"))
+            if not result.fetchone():
+                conn.execute(text(f"CREATE DATABASE {db_name}"))
+                print(f"✅ Database '{db_name}' created!")
+            else:
+                print(f"✅ Database '{db_name}' already exists")
+        sync_engine.dispose()
+        return True
+    except Exception as e:
+        print(f"⚠️ Could not auto-create database: {e}")
+        return False
 
 @app.on_event("startup")
 async def startup_event():
+    # Try to create database
+    create_database_if_not_exists()
+    
     try:
-        # Try to create tables
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        print("✅ Database tables created")
+        print("✅ Tables created")
         
-        # Create admin user
         async with async_session() as db:
             result = await db.execute(select(User).where(User.role == UserRole.admin))
-            admin_user = result.scalars().first()
-            
-            if not admin_user:
+            if not result.scalars().first():
                 admin = User(
                     email="admin@gmail.com",
                     hashed_password=get_password_hash("admin123"),
@@ -64,13 +84,9 @@ async def startup_event():
                 db.add(admin)
                 await db.commit()
                 print("✅ Admin user created")
-            else:
-                print("✅ Admin user already exists")
     except Exception as e:
-        print(f"⚠️ Database initialization error: {e}")
-        print("   The app will continue running. Database may need manual setup.")
+        print(f"⚠️ Startup error: {e}")
 
-# Include routers
 app.include_router(auth.router, prefix="/api")
 app.include_router(products.router, prefix="/api")
 app.include_router(categories.router, prefix="/api")
