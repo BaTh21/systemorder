@@ -20,6 +20,7 @@ import AdminProducts from './pages/admin/AdminProducts';
 import AdminCustomers from './pages/admin/AdminCustomers';
 import ProfilePage from './pages/ProfilePage';
 import AdminCategories from './pages/admin/AdminCategories';
+import ContactPage from './pages/ContactPage';
 
 
 const theme = createTheme({
@@ -84,6 +85,7 @@ function App() {
                 } />
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route path="/admin/categories" element={<AdminCategories />} />
+                <Route path="/contact" element={<ContactPage />} />
               </Routes>
             </Layout>
           </CartProvider>

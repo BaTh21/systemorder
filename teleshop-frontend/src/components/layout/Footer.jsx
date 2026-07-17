@@ -34,7 +34,6 @@ const Footer = () => {
     <Box sx={{ bgcolor: '#0f172a', color: 'white', pt: 8, pb: 3 }}>
       <Container maxWidth="lg">
         
-        {/* Main Footer Content */}
         <Grid container spacing={5} mb={5}>
           
           {/* About */}
@@ -46,7 +45,6 @@ const Footer = () => {
               Your one-stop shop for quality products with fast delivery. We offer the best prices and excellent customer service.
             </Typography>
             
-            {/* Social Icons */}
             <Stack direction="row" spacing={1}>
               {[
                 { icon: <Facebook fontSize="small" />, color: '#1877f2' },
@@ -111,7 +109,7 @@ const Footer = () => {
                 { label: 'My Account', path: '/profile' },
                 { label: 'My Orders', path: '/orders' },
                 { label: 'Track Order', path: '/orders' },
-                { label: 'FAQ', path: '/faq' },
+                { label: 'Contact Us', path: '/contact' },
               ].map((link) => (
                 <Link
                   key={link.label}
@@ -140,7 +138,6 @@ const Footer = () => {
               Get 10% off your first order! Subscribe to our newsletter for exclusive deals.
             </Typography>
             
-            {/* Newsletter Form */}
             <Stack direction="row" spacing={0} mb={3}>
               <TextField
                 placeholder="Your email address"
@@ -172,7 +169,6 @@ const Footer = () => {
               </Button>
             </Stack>
 
-            {/* Contact Info */}
             <Stack spacing={1}>
               {[
                 { icon: <Email sx={{ fontSize: 16, color: '#f59e0b' }} />, text: 'support@teleshop.com' },
@@ -190,7 +186,6 @@ const Footer = () => {
           </Grid>
         </Grid>
 
-        {/* Features Strip */}
         <Divider sx={{ borderColor: 'rgba(255,255,255,0.06)', mb: 4 }} />
         <Grid container spacing={2} mb={4} justifyContent="center">
           {[
@@ -217,7 +212,6 @@ const Footer = () => {
           ))}
         </Grid>
 
-        {/* Copyright */}
         <Divider sx={{ borderColor: 'rgba(255,255,255,0.06)', mb: 3 }} />
         <Stack 
           direction={{ xs: 'column', sm: 'row' }} 
@@ -229,21 +223,15 @@ const Footer = () => {
             © {new Date().getFullYear()} TeleShop. All rights reserved.
           </Typography>
           <Stack direction="row" spacing={3}>
-            {['Privacy Policy', 'Terms of Service', 'Cookie Policy'].map((text) => (
-              <Link
-                key={text}
-                component={RouterLink}
-                to="#"
-                underline="none"
-                sx={{
-                  color: '#64748b',
-                  fontSize: '0.8rem',
-                  '&:hover': { color: '#f59e0b' },
-                }}
-              >
-                {text}
-              </Link>
-            ))}
+            <Link component={RouterLink} to="#" underline="none" sx={{ color: '#64748b', fontSize: '0.8rem', '&:hover': { color: '#f59e0b' } }}>
+              Privacy Policy
+            </Link>
+            <Link component={RouterLink} to="#" underline="none" sx={{ color: '#64748b', fontSize: '0.8rem', '&:hover': { color: '#f59e0b' } }}>
+              Terms of Service
+            </Link>
+            <Link component={RouterLink} to="/contact" underline="none" sx={{ color: '#64748b', fontSize: '0.8rem', '&:hover': { color: '#f59e0b' } }}>
+              Contact Us
+            </Link>
           </Stack>
         </Stack>
 

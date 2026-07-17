@@ -12,6 +12,8 @@ from sqlalchemy import select, create_engine, text
 import os
 import asyncio
 
+from app.routers import contact
+
 # Create upload directories
 os.makedirs("uploads/products", exist_ok=True)
 os.makedirs("uploads/categories", exist_ok=True)
@@ -94,3 +96,4 @@ app.include_router(cart.router, prefix="/api")
 app.include_router(orders.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(telegram.router, prefix="/api")
+app.include_router(contact.router, prefix="/api")
