@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "uploads"
     
     # CORS
-    CORS_ORIGINS: List[str] = ["*"]
+    CORS_ORIGINS: List[str] = ["http://localhost:5173","http://localhost:3000","https://systemorder.vercel.app","https://www.systemorder.vercel.app",]
     
     # Fees
     SERVICE_FEE_RATE: float = 0.05
