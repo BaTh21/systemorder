@@ -19,6 +19,8 @@ import AdminOrders from './pages/admin/AdminOrders';
 import AdminProducts from './pages/admin/AdminProducts';
 import AdminCustomers from './pages/admin/AdminCustomers';
 import ProfilePage from './pages/ProfilePage';
+import AdminCategories from './pages/admin/AdminCategories';
+
 
 const theme = createTheme({
   palette: {
@@ -81,6 +83,7 @@ function App() {
                   </PrivateRoute>
                 } />
                 <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/admin/categories" element={<AdminCategories />} />
               </Routes>
             </Layout>
           </CartProvider>
