@@ -28,6 +28,7 @@ import {
   TrendingUp,
   Refresh,
   Circle,
+  Category,
 } from '@mui/icons-material';
 import {
   BarChart,
@@ -40,7 +41,6 @@ import {
 } from 'recharts';
 import api from '../../api/axios';
 
-// Status colors mapping - DEFINE IT HERE
 const statusColors = {
   pending: 'default',
   confirmed: 'primary',
@@ -70,19 +70,13 @@ const AdminDashboard = () => {
     }
   }, []);
 
-  // Initial fetch
   useEffect(() => {
     fetchDashboard();
   }, [fetchDashboard]);
 
-  // Auto-refresh every 30 seconds
   useEffect(() => {
     if (!autoRefresh) return;
-
-    const interval = setInterval(() => {
-      fetchDashboard();
-    }, 30000);
-
+    const interval = setInterval(() => { fetchDashboard(); }, 30000);
     return () => clearInterval(interval);
   }, [autoRefresh, fetchDashboard]);
 
@@ -138,6 +132,15 @@ const AdminDashboard = () => {
       bgColor: '#f3e5f5',
       link: '/admin/customers',
     },
+    {
+      title: 'Categories',
+      value: stats.total_categories || 0,
+      subtitle: 'Manage product categories',
+      icon: <Category sx={{ fontSize: 40 }} />,
+      color: '#0891b2',
+      bgColor: '#ecfeff',
+      link: '/admin/categories',
+    },
   ];
 
   const formatStatus = (status) => {
@@ -145,7 +148,6 @@ const AdminDashboard = () => {
     return status.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
   };
 
-  // Sort recent orders ASC (oldest first)
   const sortedRecentOrders = [...(dashboardData?.recent_orders || [])].sort((a, b) => 
     new Date(a.created_at) - new Date(b.created_at)
   );
@@ -179,10 +181,10 @@ const AdminDashboard = () => {
         </Box>
       </Box>
 
-      {/* Stat Cards - NOW CLICKABLE */}
+      {/* Stat Cards */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         {statCards.map((stat) => (
-          <Grid item xs={12} sm={6} md={3} key={stat.title}>
+          <Grid item xs={12} sm={6} md={4} lg={2.4} key={stat.title}>
             <Card
               component={RouterLink}
               to={stat.link}
@@ -219,7 +221,6 @@ const AdminDashboard = () => {
 
       {/* Charts */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        {/* Revenue Chart */}
         <Grid item xs={12} md={8}>
           <Card>
             <CardContent>
@@ -241,7 +242,6 @@ const AdminDashboard = () => {
           </Card>
         </Grid>
 
-        {/* Top Products */}
         <Grid item xs={12} md={4}>
           <Card sx={{ height: '100%' }}>
             <CardContent>
@@ -256,21 +256,11 @@ const AdminDashboard = () => {
                 (dashboardData?.top_products || []).map((product, index) => (
                   <Box key={index} sx={{ mb: 2 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                      <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                        {product.name}
-                      </Typography>
-                      <Typography variant="body2" fontWeight="bold">
-                        ${product.revenue?.toLocaleString()}
-                      </Typography>
+                      <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>{product.name}</Typography>
+                      <Typography variant="body2" fontWeight="bold">${product.revenue?.toLocaleString()}</Typography>
                     </Box>
-                    <LinearProgress
-                      variant="determinate"
-                      value={Math.max(10, 100 - index * 20)}
-                      sx={{ height: 6, borderRadius: 3 }}
-                    />
-                    <Typography variant="caption" color="text.secondary">
-                      {product.quantity} units sold
-                    </Typography>
+                    <LinearProgress variant="determinate" value={Math.max(10, 100 - index * 20)} sx={{ height: 6, borderRadius: 3 }} />
+                    <Typography variant="caption" color="text.secondary">{product.quantity} units sold</Typography>
                   </Box>
                 ))
               )}
@@ -279,7 +269,7 @@ const AdminDashboard = () => {
         </Grid>
       </Grid>
 
-      {/* Recent Orders - ASC */}
+      {/* Recent Orders */}
       <Card>
         <CardContent>
           <Typography variant="h6" gutterBottom>
@@ -300,37 +290,20 @@ const AdminDashboard = () => {
                 {sortedRecentOrders.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={5} align="center">
-                      <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-                        No orders yet
-                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>No orders yet</Typography>
                     </TableCell>
                   </TableRow>
                 ) : (
                   sortedRecentOrders.map((order) => (
                     <TableRow key={order.id} hover>
-                      <TableCell sx={{ fontFamily: 'monospace' }}>
-                        #{String(order.id).padStart(6, '0')}
-                      </TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace' }}>#{String(order.id).padStart(6, '0')}</TableCell>
                       <TableCell>{order.customer}</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }}>
-                        ${Number(order.total || 0).toLocaleString()}
+                      <TableCell sx={{ fontWeight: 'bold' }}>${Number(order.total || 0).toLocaleString()}</TableCell>
+                      <TableCell>
+                        <Chip label={formatStatus(order.status)} color={statusColors[order.status] || 'default'} size="small" />
                       </TableCell>
                       <TableCell>
-                        <Chip
-                          label={formatStatus(order.status)}
-                          color={statusColors[order.status] || 'default'}
-                          size="small"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        {order.created_at 
-                          ? new Date(order.created_at).toLocaleDateString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })
-                          : 'N/A'}
+                        {order.created_at ? new Date(order.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
                       </TableCell>
                     </TableRow>
                   ))
@@ -341,15 +314,9 @@ const AdminDashboard = () => {
         </CardContent>
       </Card>
 
-      {/* Loading overlay */}
       {loading && dashboardData && (
         <Box sx={{ position: 'fixed', top: 16, right: 16, zIndex: 9999 }}>
-          <Chip
-            icon={<CircularProgress size={16} />}
-            label="Refreshing..."
-            color="primary"
-            variant="outlined"
-          />
+          <Chip icon={<CircularProgress size={16} />} label="Refreshing..." color="primary" variant="outlined" />
         </Box>
       )}
     </Container>
