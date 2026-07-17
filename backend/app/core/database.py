@@ -1,21 +1,31 @@
 # app/core/database.py
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from app.core.config import settings
+import os
 
-# Convert postgres:// to postgresql+asyncpg:// automatically
+# Get database URL and clean it
 DATABASE_URL = settings.DATABASE_URL
+
+# Remove any "DATABASE_URL=" prefix if present
+if DATABASE_URL.startswith("DATABASE_URL="):
+    DATABASE_URL = DATABASE_URL.replace("DATABASE_URL=", "", 1)
+
+# Convert to asyncpg format
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
 elif DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-print(f"🔗 Database URL: {DATABASE_URL[:50]}...")  # Hide password in logs
+# Remove any quotes or spaces
+DATABASE_URL = DATABASE_URL.strip().strip('"').strip("'")
+
+print(f"🔗 Database URL: {DATABASE_URL[:60]}...")
 
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    pool_size=10,
-    max_overflow=20,
+    pool_size=5,
+    max_overflow=10,
     pool_pre_ping=True,
 )
 
