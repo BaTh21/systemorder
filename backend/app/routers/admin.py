@@ -33,8 +33,14 @@ async def get_all_orders(
     limit: int = 50,
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all orders with items eagerly loaded"""
-    query = select(Order).options(selectinload(Order.items))
+    """Get all orders with items and customer info"""
+    
+    # Build query with eager loading of user relationship
+    query = select(Order).options(
+        selectinload(Order.items),
+        selectinload(Order.user)  # ← LOAD USER DATA
+    )
+    
     if status:
         query = query.where(Order.status == status)
     
@@ -42,14 +48,14 @@ async def get_all_orders(
     count_query = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_query)).scalar()
     
-    # Apply pagination
-    query = query.order_by(Order.created_at.desc())
+    # Apply pagination and ordering
+    query = query.order_by(Order.created_at.asc())  # ASC - oldest first
     query = query.offset((page - 1) * limit).limit(limit)
     
     result = await db.execute(query)
-    orders = result.scalars().all()
+    orders = result.unique().scalars().all()
     
-    # Build response
+    # Build response with customer names
     orders_list = []
     for order in orders:
         items_list = []
@@ -62,9 +68,14 @@ async def get_all_orders(
                 "total_price": float(item.total_price)
             })
         
+        customer_name = "N/A"
+        if order.user:
+            customer_name = order.user.full_name or order.user.email or f"User #{order.user.id}"
+        
         orders_list.append({
             "id": order.id,
             "user_id": order.user_id,
+            "customer": customer_name,
             "status": str(order.status.value) if hasattr(order.status, 'value') else str(order.status),
             "subtotal": float(order.subtotal) if order.subtotal else 0,
             "total": float(order.total) if order.total else 0,

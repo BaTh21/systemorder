@@ -37,7 +37,6 @@ import {
   Refresh,
   ArrowBack,
   Visibility,
-  Edit,
   LocalShipping,
 } from '@mui/icons-material';
 import api from '../../api/axios';
@@ -99,6 +98,9 @@ const AdminOrders = () => {
         setTotalOrders(response.data.total || 0);
       }
       
+      // Sort ASC (oldest first)
+      ordersData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      
       setOrders(ordersData);
     } catch (error) {
       console.error('Error fetching orders:', error);
@@ -151,12 +153,7 @@ const AdminOrders = () => {
     <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh', py: 4 }}>
       <Container maxWidth="xl">
 
-        {/* Back Button */}
-        <Button
-          startIcon={<ArrowBack />}
-          onClick={() => navigate('/admin')}
-          sx={{ textTransform: 'none', fontWeight: 500, color: '#475569', mb: 2 }}
-        >
+        <Button startIcon={<ArrowBack />} onClick={() => navigate('/admin')} sx={{ textTransform: 'none', fontWeight: 500, color: '#475569', mb: 2 }}>
           Back to Dashboard
         </Button>
 
@@ -165,7 +162,7 @@ const AdminOrders = () => {
           <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
             <Box>
               <Typography variant="h5" fontWeight={700} color="#0f172a">Orders Management</Typography>
-              <Typography variant="body2" color="#94a3b8" mt={0.5}>{totalOrders} total orders</Typography>
+              <Typography variant="body2" color="#94a3b8" mt={0.5}>{totalOrders} total orders · Sorted: ASC (oldest first)</Typography>
             </Box>
             <Stack direction="row" spacing={1}>
               <FormControl size="small" sx={{ minWidth: 150 }}>
@@ -212,14 +209,10 @@ const AdminOrders = () => {
                   orders.map((order) => (
                     <TableRow key={order.id} hover>
                       <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>#{String(order.id).padStart(6, '0')}</TableCell>
-                      <TableCell>
-                        <Typography variant="body2" fontWeight={500}>{order.customer || 'N/A'}</Typography>
-                      </TableCell>
+                      <TableCell><Typography variant="body2" fontWeight={500}>{order.customer || 'N/A'}</Typography></TableCell>
                       <TableCell>{order.items?.length || 0} item(s)</TableCell>
                       <TableCell><Typography fontWeight={600} color="#059669">{formatPrice(order.total)}</Typography></TableCell>
-                      <TableCell>
-                        <Chip label={formatStatus(order.status)} color={statusColors[order.status] || 'default'} size="small" />
-                      </TableCell>
+                      <TableCell><Chip label={formatStatus(order.status)} color={statusColors[order.status] || 'default'} size="small" /></TableCell>
                       <TableCell><Typography variant="body2" color="#64748b" fontSize="0.8rem">{formatDate(order.created_at)}</Typography></TableCell>
                       <TableCell>
                         {order.tracking_number ? (
@@ -230,20 +223,8 @@ const AdminOrders = () => {
                       </TableCell>
                       <TableCell align="center">
                         <Stack direction="row" spacing={0.5} justifyContent="center">
-                          <Tooltip title="View Details">
-                            <IconButton size="small" onClick={() => navigate(`/orders/${order.id}`)} color="primary">
-                              <Visibility fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Update Status">
-                            <IconButton
-                              size="small"
-                              onClick={(e) => { setAnchorEl(e.currentTarget); setSelectedOrder(order); }}
-                              disabled={!statusFlow[order.status] || statusFlow[order.status].length === 0}
-                            >
-                              <MoreVert fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                          <Tooltip title="View Details"><IconButton size="small" onClick={() => navigate(`/orders/${order.id}`)} color="primary"><Visibility fontSize="small" /></IconButton></Tooltip>
+                          <Tooltip title="Update Status"><IconButton size="small" onClick={(e) => { setAnchorEl(e.currentTarget); setSelectedOrder(order); }} disabled={!statusFlow[order.status] || statusFlow[order.status].length === 0}><MoreVert fontSize="small" /></IconButton></Tooltip>
                         </Stack>
                       </TableCell>
                     </TableRow>
@@ -264,14 +245,9 @@ const AdminOrders = () => {
       <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)}>
         {selectedOrder && statusFlow[selectedOrder.status]?.map((status) => (
           <MenuItem key={status} onClick={() => {
-            if (status === 'shipping') {
-              setOpenTrackingDialog(true);
-            } else {
-              handleStatusUpdate(selectedOrder.id, status);
-            }
-          }}>
-            Mark as {formatStatus(status)}
-          </MenuItem>
+            if (status === 'shipping') { setOpenTrackingDialog(true); }
+            else { handleStatusUpdate(selectedOrder.id, status); }
+          }}>Mark as {formatStatus(status)}</MenuItem>
         ))}
       </Menu>
 
@@ -279,9 +255,7 @@ const AdminOrders = () => {
       <Dialog open={openTrackingDialog} onClose={() => setOpenTrackingDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>Add Tracking Number</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" mb={2}>
-            Order #{selectedOrder?.id}
-          </Typography>
+          <Typography variant="body2" color="text.secondary" mb={2}>Order #{selectedOrder?.id}</Typography>
           <TextField fullWidth label="Tracking Number" value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} autoFocus size="small" sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
         </DialogContent>
         <DialogActions sx={{ p: 3, pt: 0 }}>

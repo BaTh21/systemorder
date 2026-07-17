@@ -95,41 +95,34 @@ async def get_orders(
     current_user = Depends(get_current_user), 
     db: AsyncSession = Depends(get_db)
 ):
-    """Get current user's orders with items"""
+    """Get current user's orders"""
     result = await db.execute(
         select(Order)
-        .options(selectinload(Order.items))
+        .options(selectinload(Order.items), selectinload(Order.user))
         .where(Order.user_id == current_user.id)
-        .order_by(Order.created_at.desc())
+        .order_by(Order.created_at.asc()) 
     )
-    orders = result.scalars().all()
+    orders = result.unique().scalars().all()
     
-    # Build response with items
     orders_list = []
     for order in orders:
         items_list = []
         for item in (order.items or []):
             items_list.append({
                 "id": item.id,
-                "product_id": item.product_id,
                 "product_name_snapshot": item.product_name_snapshot,
                 "unit_price": float(item.unit_price),
                 "quantity": item.quantity,
                 "total_price": float(item.total_price)
             })
         
+        customer_name = order.user.full_name if order.user else "N/A"
+        
         orders_list.append({
             "id": order.id,
-            "user_id": order.user_id,
+            "customer": customer_name,
             "status": str(order.status.value) if hasattr(order.status, 'value') else str(order.status),
-            "subtotal": float(order.subtotal) if order.subtotal else 0,
-            "shipping_fee": float(order.shipping_fee) if order.shipping_fee else 0,
-            "service_fee": float(order.service_fee) if order.service_fee else 0,
             "total": float(order.total) if order.total else 0,
-            "shipping_address": order.shipping_address,
-            "customer_notes": order.customer_notes,
-            "payment_method": order.payment_method,
-            "tracking_number": order.tracking_number,
             "created_at": str(order.created_at),
             "items": items_list
         })
