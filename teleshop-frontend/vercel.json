@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/hosting-api/:path*",
+      "destination": "https://systemorder.onrender.com/:path*"
+    },
+    {
+      "source": "/:path*",
+      "destination": "/index.html"
+    }
+  ]
+}

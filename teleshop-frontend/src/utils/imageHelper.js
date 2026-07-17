@@ -1,17 +1,15 @@
 // src/utils/imageHelper.js
 
 export const getImageUrl = (imageUrl) => {
-    if (!imageUrl) {
-        return getPlaceholderImage();
-    }
+    if (!imageUrl) return getPlaceholderImage();
     
-    // If it's already a full URL (Cloudinary, etc.), return as is
+    // Full URLs - return as is
     if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
         return imageUrl;
     }
     
-    // For local development paths
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    // Use VITE_API_URL or VITE_BACKEND_URL
+    const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
     
     if (imageUrl.startsWith('/')) {
         return `${API_BASE_URL}${imageUrl}`;
@@ -21,16 +19,9 @@ export const getImageUrl = (imageUrl) => {
 };
 
 export const getPlaceholderImage = (w = 300, h = 300) => {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
         <rect width="${w}" height="${h}" fill="#E8E8E8"/>
-        <rect x="4" y="4" width="${w-8}" height="${h-8}" fill="#F8F8F8" stroke="#DDD" stroke-width="1"/>
-        <text x="${w/2}" y="${h/2-5}" font-family="Arial" font-size="14" fill="#AAA" text-anchor="middle">No Image</text>
-        <text x="${w/2}" y="${h/2+15}" font-family="Arial" font-size="11" fill="#CCC" text-anchor="middle">Available</text>
+        <text x="${w/2}" y="${h/2}" font-family="Arial" font-size="14" fill="#AAA" text-anchor="middle" dominant-baseline="middle">No Image</text>
     </svg>`;
     return `data:image/svg+xml;base64,${btoa(svg)}`;
-};
-
-export const handleImageError = (event) => {
-    event.target.src = getPlaceholderImage();
-    event.target.onerror = null;
 };
