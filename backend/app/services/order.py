@@ -11,7 +11,7 @@ from decimal import Decimal
 from app.services.telegram import send_order_notification_to_admin, send_order_confirmation_to_customer
 
 async def create_order_from_cart(db: AsyncSession, user, order_data, background_tasks: BackgroundTasks):
-    """Create order from cart items and send notifications"""
+    """Create order from cart items, decrease stock, and send notifications"""
     
     print(f"🛒 Creating order for user {user.id}")
     
@@ -21,30 +21,36 @@ async def create_order_from_cart(db: AsyncSession, user, order_data, background_
     )
     cart_items = result.scalars().all()
     
-    print(f"📦 Cart items found: {len(cart_items)}")
-    
     if not cart_items:
-        raise HTTPException(400, "Cart is empty. Add items to cart first.")
+        raise HTTPException(400, "Cart is empty")
     
     subtotal = Decimal("0.00")
     order_items = []
     
     for item in cart_items:
-        # Load product with eager loading
+        # Load product
         product_result = await db.execute(
-            select(Product)
-            .options(selectinload(Product.images))
+            select(Product).options(selectinload(Product.images))
             .where(Product.id == item.product_id)
         )
         product = product_result.scalars().first()
         
         if not product or not product.is_active:
-            raise HTTPException(400, f"Product is unavailable")
+            raise HTTPException(400, f"Product '{item.product_name_snapshot}' is unavailable")
         
+        # Check stock
         variant = None
         if item.variant_id:
             variant = await db.get(ProductVariant, item.variant_id)
+            if variant and variant.stock < item.quantity:
+                raise HTTPException(400, f"Not enough stock for {product.name} ({variant.name}). Available: {variant.stock}")
+            if variant:
+                variant.stock -= item.quantity 
+            if product.stock < item.quantity:
+                raise HTTPException(400, f"Not enough stock for {product.name}. Available: {product.stock}")
+            product.stock -= item.quantity 
         
+        # Calculate price
         unit_price = product.base_price
         if variant:
             unit_price += variant.price_modifier
@@ -70,8 +76,6 @@ async def create_order_from_cart(db: AsyncSession, user, order_data, background_
     shipping_fee = Decimal("5.00")
     service_fee = (subtotal * Decimal(str(settings.SERVICE_FEE_RATE))).quantize(Decimal("0.01"))
     total = subtotal + shipping_fee + service_fee
-    
-    print(f"💰 Subtotal: {subtotal}, Shipping: {shipping_fee}, Service: {service_fee}, Total: {total}")
     
     # Create order
     order = Order(
@@ -101,20 +105,11 @@ async def create_order_from_cart(db: AsyncSession, user, order_data, background_
     await db.commit()
     await db.refresh(order)
     
-    print(f"✅ Order created: ID={order.id}")
+    print(f"✅ Order created: ID={order.id}, Total=${total}")
     
-    # 🔔 SEND TELEGRAM NOTIFICATIONS (Background tasks)
-    print(f"📱 Scheduling Telegram notifications for order #{order.id}")
-    
-    # Notify admin about new order
+    # Send notifications
     background_tasks.add_task(send_order_notification_to_admin, str(order.id))
-    print(f"   ✅ Admin notification scheduled")
-    
-    # Notify customer if they have Telegram connected
     if user.telegram_chat_id:
         background_tasks.add_task(send_order_confirmation_to_customer, str(order.id))
-        print(f"   ✅ Customer notification scheduled (Chat ID: {user.telegram_chat_id})")
-    else:
-        print(f"   ℹ️ Customer has no Telegram connected")
     
     return order

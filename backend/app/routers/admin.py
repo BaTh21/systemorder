@@ -92,31 +92,45 @@ async def update_order_status(
     db: AsyncSession = Depends(get_db),
     background_tasks: BackgroundTasks = None
 ):
-    """Update order status and send Telegram notification"""
+    """Update order status - Restore stock if cancelled"""
     order = await db.get(Order, order_id)
     if not order:
         raise HTTPException(404, "Order not found")
     
     old_status = order.status
-    order.status = status
     
+    if status == OrderStatus.cancelled and old_status != OrderStatus.cancelled:
+        # Load order items
+        result = await db.execute(
+            select(OrderItem).where(OrderItem.order_id == order_id)
+        )
+        items = result.scalars().all()
+        
+        for item in items:
+            # Restore product stock
+            product = await db.get(Product, item.product_id)
+            if product:
+                product.stock += item.quantity
+                print(f"Restored {item.quantity} stock for {product.name}")
+            
+            # Restore variant stock
+            if item.variant_id:
+                variant = await db.get(ProductVariant, item.variant_id)
+                if variant:
+                    variant.stock += item.quantity
+                    print(f"Restored {item.quantity} stock for variant {variant.name}")
+    
+    order.status = status
     if tracking_number:
         order.tracking_number = tracking_number
     
     await db.commit()
     
-    # 🔔 Schedule Telegram notification - pass order_id (int) and status (str)
     if background_tasks:
         status_value = status.value if hasattr(status, 'value') else str(status)
         background_tasks.add_task(send_order_status_update, order.id, status_value)
-        print(f"   ✅ Telegram notification scheduled for order #{order.id}")
     
-    return {
-        "message": "Status updated",
-        "order_id": order.id,
-        "old_status": str(old_status),
-        "new_status": str(status)
-    }
+    return {"message": "Status updated", "order_id": order.id, "new_status": str(status)}
 
 @router.get("/products")
 async def admin_list_products(
