@@ -162,7 +162,6 @@ const AdminOrders = () => {
           <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
             <Box>
               <Typography variant="h5" fontWeight={700} color="#0f172a">Orders Management</Typography>
-              <Typography variant="body2" color="#94a3b8" mt={0.5}>{totalOrders} total orders · Sorted: ASC (oldest first)</Typography>
             </Box>
             <Stack direction="row" spacing={1}>
               <FormControl size="small" sx={{ minWidth: 150 }}>
