@@ -124,228 +124,130 @@ async def disconnect_telegram(
 @router.post("/webhook")
 async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     """Handle incoming Telegram messages"""
-    data = await request.json()
-    
-    if "message" in data:
-        message = data["message"]
-        chat_id = str(message["chat"]["id"])
-        text = message.get("text", "")
-        user_first_name = message["from"].get("first_name", "User")
+    try:
+        data = await request.json()
+        print(f"📩 Telegram webhook received: {data}")
         
-        if text == "/start":
-            welcome_text = f"""
+        if "message" in data:
+            message = data["message"]
+            chat_id = str(message["chat"]["id"])
+            text = message.get("text", "")
+            user_first_name = message["from"].get("first_name", "User")
+            
+            print(f"   From: {user_first_name} (Chat ID: {chat_id})")
+            print(f"   Text: {text}")
+            
+            if text == "/start":
+                # Always reply with Chat ID
+                reply_text = f"""
 👋 <b>Welcome to TeleShop Bot, {user_first_name}!</b>
 
-I'll keep you updated on your orders and payments.
+📱 <b>Your Chat ID:</b> <code>{chat_id}</code>
 
-<b>📋 Commands:</b>
+<b>🔗 How to connect:</b>
+1. Copy your Chat ID above
+2. Go to TeleShop website → Profile → Telegram
+3. Paste this Chat ID and click Connect
+
+<b>📋 Available Commands:</b>
 /orders - View your recent orders
-/payment - Payment information & bank details
-/status - Check order status guide
-/connect - Connect your account
+/payment - Payment & bank details
+/status - Order status guide
 /help - Get help
-/support - Contact support
+/chatid - Show your Chat ID again
 
-<b>To connect your account:</b>
-1. Log in to TeleShop website
-2. Go to Profile Settings
-3. Click "Connect Telegram"
-4. Enter this Chat ID: <code>{chat_id}</code>
-
-Happy shopping! 🛍️
+<i>Save this Chat ID - you'll need it to connect!</i>
 """
-            await send_telegram_message(chat_id, welcome_text)
-        
-        elif text == "/orders":
-            # Find user by telegram_chat_id
-            result = await db.execute(
-                select(User).where(User.telegram_chat_id == chat_id)
-            )
-            user = result.scalars().first()
+                await send_telegram_message(chat_id, reply_text)
+                print(f"   ✅ Sent welcome message with Chat ID")
             
-            if user:
-                # Fetch recent orders
+            elif text == "/chatid":
+                await send_telegram_message(
+                    chat_id,
+                    f"📱 <b>Your Chat ID:</b> <code>{chat_id}</code>\n\nUse this to connect your TeleShop account."
+                )
+            
+            elif text == "/orders":
                 result = await db.execute(
-                    select(Order)
-                    .where(Order.user_id == user.id)
-                    .order_by(Order.created_at.desc())
-                    .limit(5)
+                    select(User).where(User.telegram_chat_id == chat_id)
                 )
-                orders = result.scalars().all()
+                user = result.scalars().first()
                 
-                if orders:
-                    orders_text = "<b>📋 Your Recent Orders:</b>\n\n"
-                    for order in orders:
-                        status_emoji = {
-                            "pending": "⏳",
-                            "confirmed": "✅",
-                            "waiting_payment": "💰",
-                            "paid": "💳",
-                            "purchasing": "🛒",
-                            "shipping": "🚚",
-                            "completed": "📦",
-                            "cancelled": "❌"
-                        }.get(order.status.value if hasattr(order.status, 'value') else str(order.status), "📋")
-                        
-                        orders_text += (
-                            f"{status_emoji} <b>#{order.id}</b>\n"
-                            f"   Status: {order.status}\n"
-                            f"   Total: ${order.total}\n"
-                            f"   Date: {order.created_at.strftime('%Y-%m-%d')}\n\n"
-                        )
+                if user:
+                    result = await db.execute(
+                        select(Order)
+                        .where(Order.user_id == user.id)
+                        .order_by(Order.created_at.desc())
+                        .limit(5)
+                    )
+                    orders = result.scalars().all()
                     
-                    orders_text += "<i>Use /payment for bank details to complete your payment.</i>"
-                    await send_telegram_message(chat_id, orders_text)
+                    if orders:
+                        orders_text = "<b>📋 Your Recent Orders:</b>\n\n"
+                        for order in orders:
+                            emoji = {"pending":"⏳","confirmed":"✅","waiting_payment":"💰","paid":"💳","shipping":"🚚","completed":"📦","cancelled":"❌"}
+                            status = order.status.value if hasattr(order.status, 'value') else str(order.status)
+                            orders_text += f"{emoji.get(status,'📋')} <b>#{order.id}</b> - ${order.total}\n"
+                        await send_telegram_message(chat_id, orders_text)
+                    else:
+                        await send_telegram_message(chat_id, "📭 No orders yet!")
                 else:
-                    await send_telegram_message(chat_id, "You have no orders yet.\nStart shopping at TeleShop! 🛍️")
-            else:
-                await send_telegram_message(
-                    chat_id,
-                    f"Your Telegram is not connected to a TeleShop account.\n\n"
-                    f"Your Chat ID: <code>{chat_id}</code>\n\n"
-                    f"Use /connect for instructions."
-                )
-        
-        elif text == "/payment":
-            # Send payment information with bank details
-            payment_text = f"""
-<b>💰 Payment Information</b>
+                    await send_telegram_message(chat_id, "⚠️ Account not connected. Use /start to get your Chat ID.")
+            
+            elif text == "/payment":
+                payment_text = f"""
+💰 <b>Payment Information</b>
 
-Please transfer to:
+🏦 <b>Bank:</b> {settings.BANK_NAME}
+👤 <b>Account:</b> {settings.BANK_ACCOUNT_NAME}
+🔢 <b>Number:</b> <code>{settings.BANK_ACCOUNT_NUMBER}</code>
 
-🏦 <b>Bank:</b> {getattr(settings, 'BANK_NAME', 'ABA Bank')}
-👤 <b>Account Name:</b> {getattr(settings, 'BANK_ACCOUNT_NAME', 'TeleShop Inc.')}
-🔢 <b>Account Number:</b> <code>{getattr(settings, 'BANK_ACCOUNT_NUMBER', '000123456789')}</code>
+<b>Steps:</b>
+1. Transfer exact amount
+2. Upload screenshot on website
+3. Order will be confirmed
 
-<b>Additional Info:</b>
-• SWIFT: {getattr(settings, 'BANK_SWIFT_CODE', 'N/A')}
-• Routing: {getattr(settings, 'BANK_ROUTING_NUMBER', 'N/A')}
-
-<b>📱 Steps to Complete Payment:</b>
-1. Transfer the exact order amount
-2. Take a screenshot of confirmation
-3. Upload on website: Orders → View Details
-4. Payment verified within 1-2 hours
-
-<b>⚠️ Important:</b>
-• Use your Order ID as reference
-• Send exact amount shown in order
-• Keep payment receipt until confirmed
-
-Use /orders to see your pending payments.
+/orders - View your orders
 """
-            await send_telegram_message(chat_id, payment_text)
+                await send_telegram_message(chat_id, payment_text)
             
-            # Try to send QR code if available
-            qr_path = Path("uploads/payments/qr-code.png")
-            if qr_path.exists():
-                await send_telegram_photo(
-                    chat_id, 
-                    str(qr_path),
-                    "📱 <b>Scan QR Code to Pay</b>\n\nScan this QR code with your banking app to pay quickly."
-                )
-        
-        elif text == "/connect":
-            await send_telegram_message(
-                chat_id,
-                f"<b>🔗 Connect Your Account</b>\n\n"
-                f"1. Log in to TeleShop website\n"
-                f"2. Go to <b>Profile Settings</b>\n"
-                f"3. Click <b>Connect Telegram</b>\n"
-                f"4. Enter this Chat ID: <code>{chat_id}</code>\n\n"
-                f"<b>Quick Links:</b>\n"
-                f"/start - Main menu\n"
-                f"/payment - Payment info\n"
-                f"/orders - Your orders"
-            )
-        
-        elif text == "/help":
-            await send_telegram_message(
-                chat_id,
-                "<b>❓ TeleShop Bot Help</b>\n\n"
-                "<b>Available Commands:</b>\n"
-                "/start - Start the bot & see welcome message\n"
-                "/orders - View your recent orders\n"
-                "/payment - Get bank details & QR code for payment\n"
-                "/status - Order status guide\n"
-                "/connect - Connect your TeleShop account\n"
-                "/support - Contact customer support\n"
-                "/help - Show this help message\n\n"
-                "<b>Need Help?</b>\n"
-                "Contact us: @TeleShopSupport\n"
-                "Website: http://localhost:8000"
-            )
-        
-        elif text == "/status":
-            await send_telegram_message(
-                chat_id,
-                "<b>📊 Order Status Guide:</b>\n\n"
-                "⏳ <b>Pending</b> - Order received, awaiting review\n"
-                "✅ <b>Confirmed</b> - Order confirmed by admin\n"
-                "💰 <b>Waiting Payment</b> - Please complete payment\n"
-                "💳 <b>Paid</b> - Payment received, processing\n"
-                "🛒 <b>Purchasing</b> - Buying items from suppliers\n"
-                "🚚 <b>Shipping</b> - Package on the way\n"
-                "📦 <b>Completed</b> - Successfully delivered\n"
-                "❌ <b>Cancelled</b> - Order cancelled\n\n"
-                "Use /orders to see your orders.\n"
-                "Use /payment for payment details."
-            )
-        
-        elif text == "/support":
-            await send_telegram_message(
-                chat_id,
-                "<b>💬 TeleShop Support</b>\n\n"
-                "<b>Contact Options:</b>\n"
-                "📱 Telegram: @TeleShopSupport\n"
-                "📧 Email: support@teleshop.com\n"
-                "📞 Phone: +855 12 345 678\n\n"
-                "<b>Working Hours:</b>\n"
-                "Monday - Friday: 8 AM - 9 PM\n"
-                "Saturday: 9 AM - 6 PM\n"
-                "Sunday: Closed\n\n"
-                "We usually respond within 1-2 hours."
-            )
+            elif text == "/help":
+                help_text = """
+❓ <b>TeleShop Bot Help</b>
+
+/start - Welcome & Chat ID
+/chatid - Show your Chat ID
+/orders - Your recent orders
+/payment - Payment info
+/status - Order status guide
+/help - This help message
+
+📧 <b>Support:</b> support@teleshop.com
+"""
+                await send_telegram_message(chat_id, help_text)
             
-        elif text == "/payment":
-            # Send payment information
-            payment_text = f"""
-        <b>💰 Payment Information</b>
+            elif text == "/status":
+                status_text = """
+📊 <b>Order Status Guide:</b>
 
-        Please transfer to:
-
-        🏦 <b>Bank:</b> ABA Bank
-        👤 <b>Account Name:</b> TeleShop Inc.
-        🔢 <b>Account Number:</b> <code>000123456789</code>
-
-        <b>Steps:</b>
-        1. Transfer exact order amount
-        2. Take screenshot of confirmation
-        3. Upload on website
-
-        Use /orders to see your pending payments.
-        """
-            await send_telegram_message(chat_id, payment_text)
+⏳ Pending - Order received
+✅ Confirmed - Order approved
+💰 Waiting Payment - Please pay
+💳 Paid - Processing
+🚚 Shipping - On the way
+📦 Completed - Delivered
+❌ Cancelled - Cancelled
+"""
+                await send_telegram_message(chat_id, status_text)
             
-            # Send QR code if exists
-            qr_path = Path("uploads/payments/qr-code.png")
-            print(f"QR Code path: {qr_path}")
-            print(f"QR Code exists: {qr_path.exists()}")
-            
-            if qr_path.exists():
-                print("📱 Sending QR code...")
-                result = await send_telegram_photo(
-                    chat_id,
-                    str(qr_path),
-                    "📱 <b>Scan QR Code to Pay</b>"
-                )
-                print(f"QR send result: {result}")
             else:
-                print("❌ QR code file not found!")
                 await send_telegram_message(
                     chat_id,
-                    "⚠️ QR code not available. Please use the bank details above."
+                    f"Send /start to get your Chat ID and connect your account!\n\n/help - See all commands"
                 )
-    
-    return {"ok": True}
-
+        
+        return {"ok": True}
+        
+    except Exception as e:
+        print(f"❌ Webhook error: {e}")
+        return {"ok": False, "error": str(e)}
