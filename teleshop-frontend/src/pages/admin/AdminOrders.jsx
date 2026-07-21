@@ -38,6 +38,7 @@ import {
   ArrowBack,
   Visibility,
   LocalShipping,
+  Phone,
 } from '@mui/icons-material';
 import api from '../../api/axios';
 
@@ -54,9 +55,9 @@ const statusColors = {
 
 const statusFlow = {
   pending: ['confirmed', 'cancelled'],
-  confirmed: ['waiting_payment', 'cancelled'],
-  waiting_payment: ['paid', 'cancelled'],
-  paid: ['purchasing', 'cancelled'],
+  confirmed: ['waiting_payment', 'shipping', 'cancelled'],
+  waiting_payment: ['paid', 'shipping', 'cancelled'],
+  paid: ['purchasing', 'shipping', 'cancelled'],
   purchasing: ['shipping', 'cancelled'],
   shipping: ['completed', 'cancelled'],
   completed: [],
@@ -71,6 +72,9 @@ const AdminOrders = () => {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [openTrackingDialog, setOpenTrackingDialog] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState('');
+  const [deliveryService, setDeliveryService] = useState('');
+  const [deliveryPhone, setDeliveryPhone] = useState('');
+  const [deliveryNotes, setDeliveryNotes] = useState('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [statusFilter, setStatusFilter] = useState('all');
   const [page, setPage] = useState(1);
@@ -88,7 +92,7 @@ const AdminOrders = () => {
       if (statusFilter && statusFilter !== 'all') params.status = statusFilter;
 
       const response = await api.get('/admin/orders', { params });
-      
+
       let ordersData = [];
       if (Array.isArray(response.data)) {
         ordersData = response.data;
@@ -97,10 +101,8 @@ const AdminOrders = () => {
         setTotalPages(Math.ceil((response.data.total || 0) / 50));
         setTotalOrders(response.data.total || 0);
       }
-      
-      // Sort ASC (oldest first)
+
       ordersData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-      
       setOrders(ordersData);
     } catch (error) {
       console.error('Error fetching orders:', error);
@@ -125,12 +127,23 @@ const AdminOrders = () => {
   const handleShippingUpdate = async () => {
     if (!selectedOrder) return;
     try {
+      let trackingInfo = `${deliveryService}: ${trackingNumber}`;
+      if (deliveryPhone) {
+        trackingInfo += ` | 📞 ${deliveryPhone}`;
+      }
+      if (deliveryNotes) {
+        trackingInfo += ` | 📝 ${deliveryNotes}`;
+      }
+
       await api.put(`/admin/orders/${selectedOrder.id}/status`, null, {
-        params: { status: 'shipping', tracking_number: trackingNumber }
+        params: { status: 'shipping', tracking_number: trackingInfo }
       });
-      setSnackbar({ open: true, message: 'Tracking added & status updated', severity: 'success' });
+      setSnackbar({ open: true, message: 'Tracking added & status updated!', severity: 'success' });
       setOpenTrackingDialog(false);
       setTrackingNumber('');
+      setDeliveryService('');
+      setDeliveryPhone('');
+      setDeliveryNotes('');
       fetchOrders();
     } catch (error) {
       setSnackbar({ open: true, message: 'Failed to update shipping', severity: 'error' });
@@ -148,6 +161,38 @@ const AdminOrders = () => {
   };
 
   const formatPrice = (price) => `$${Number(price || 0).toFixed(2)}`;
+
+  const getDeliveryLabel = (tracking) => {
+    if (!tracking || !tracking.includes(':')) return tracking || 'N/A';
+    const service = tracking.split(':')[0];
+    const services = {
+      'grab_express': 'Grab Express',
+      'grab_bike': 'Grab Bike',
+      'nham24': 'Nham24',
+      'virak_buntham': 'Virak Buntham',
+      'jnt_express': 'J&T Express',
+      'dhl': 'DHL',
+      'other': 'Delivery',
+    };
+    return services[service] || service;
+  };
+
+  const getTrackingId = (tracking) => {
+    if (!tracking || !tracking.includes(':')) return tracking || '';
+    const parts = tracking.split(':');
+    if (parts.length < 2) return '';
+    const idPart = parts[1].split('|')[0].trim();
+    return idPart;
+  };
+
+  const getTrackingPhone = (tracking) => {
+    if (!tracking || !tracking.includes('📞')) return '';
+    const phonePart = tracking.split('📞')[1];
+    if (phonePart) {
+      return phonePart.split('|')[0].trim();
+    }
+    return '';
+  };
 
   return (
     <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh', py: 4 }}>
@@ -186,16 +231,16 @@ const AdminOrders = () => {
         {/* Orders Table */}
         <Paper elevation={0} sx={{ borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white', overflow: 'hidden' }}>
           <TableContainer>
-            <Table>
+            <Table size="small">
               <TableHead>
                 <TableRow sx={{ bgcolor: '#f8fafc' }}>
                   <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Order</TableCell>
                   <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Customer</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Items</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: '#475569', display: { xs: 'none', lg: 'table-cell' } }}>Items</TableCell>
                   <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Total</TableCell>
                   <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Status</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Date</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Tracking</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: '#475569', display: { xs: 'none', md: 'table-cell' } }}>Date</TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Delivery</TableCell>
                   <TableCell sx={{ fontWeight: 600, color: '#475569' }} align="center">Actions</TableCell>
                 </TableRow>
               </TableHead>
@@ -207,24 +252,73 @@ const AdminOrders = () => {
                 ) : (
                   orders.map((order) => (
                     <TableRow key={order.id} hover>
-                      <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600 }}>#{String(order.id).padStart(6, '0')}</TableCell>
-                      <TableCell><Typography variant="body2" fontWeight={500}>{order.customer || 'N/A'}</Typography></TableCell>
-                      <TableCell>{order.items?.length || 0} item(s)</TableCell>
-                      <TableCell><Typography fontWeight={600} color="#059669">{formatPrice(order.total)}</Typography></TableCell>
-                      <TableCell><Chip label={formatStatus(order.status)} color={statusColors[order.status] || 'default'} size="small" /></TableCell>
-                      <TableCell><Typography variant="body2" color="#64748b" fontSize="0.8rem">{formatDate(order.created_at)}</Typography></TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: '0.8rem' }}>
+                        #{String(order.id).padStart(6, '0')}
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={500} fontSize="0.8rem">
+                          {order.customer || 'N/A'}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
+                        {order.items?.length || 0} item(s)
+                      </TableCell>
+                      <TableCell>
+                        <Typography fontWeight={600} color="#059669" fontSize="0.8rem">
+                          {formatPrice(order.total)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip label={formatStatus(order.status)} color={statusColors[order.status] || 'default'} size="small" sx={{ fontSize: '0.7rem' }} />
+                      </TableCell>
+                      <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
+                        <Typography variant="body2" color="#64748b" fontSize="0.75rem">
+                          {formatDate(order.created_at)}
+                        </Typography>
+                      </TableCell>
                       <TableCell>
                         {order.tracking_number ? (
-                          <Chip icon={<LocalShipping sx={{ fontSize: 14 }} />} label={order.tracking_number} size="small" variant="outlined" color="primary" />
+                          <Stack spacing={0.3}>
+                            <Chip
+                              icon={<LocalShipping sx={{ fontSize: 12 }} />}
+                              label={getDeliveryLabel(order.tracking_number)}
+                              size="small"
+                              variant="outlined"
+                              color="primary"
+                              sx={{ fontSize: '0.65rem', height: 22 }}
+                            />
+                            {getTrackingId(order.tracking_number) && (
+                              <Typography variant="caption" color="#64748b" sx={{ fontSize: '0.6rem' }}>
+                                ID: {getTrackingId(order.tracking_number)}
+                              </Typography>
+                            )}
+                            {getTrackingPhone(order.tracking_number) && (
+                              <Typography variant="caption" color="#64748b" sx={{ fontSize: '0.6rem' }}>
+                                📞 {getTrackingPhone(order.tracking_number)}
+                              </Typography>
+                            )}
+                          </Stack>
                         ) : (
-                          <Typography variant="caption" color="#94a3b8">-</Typography>
+                          <Typography variant="caption" color="#94a3b8" fontSize="0.7rem">-</Typography>
                         )}
                       </TableCell>
-                      <TableCell align="center">
-                        <Stack direction="row" spacing={0.5} justifyContent="center">
-                          <Tooltip title="View Details"><IconButton size="small" onClick={() => navigate(`/orders/${order.id}`)} color="primary"><Visibility fontSize="small" /></IconButton></Tooltip>
-                          <Tooltip title="Update Status"><IconButton size="small" onClick={(e) => { setAnchorEl(e.currentTarget); setSelectedOrder(order); }} disabled={!statusFlow[order.status] || statusFlow[order.status].length === 0}><MoreVert fontSize="small" /></IconButton></Tooltip>
-                        </Stack>
+                      <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+                        <Tooltip title="View Details">
+                          <IconButton size="small" onClick={() => navigate(`/orders/${order.id}`)} color="primary">
+                            <Visibility fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Update Status">
+                          <span>
+                            <IconButton
+                              size="small"
+                              onClick={(e) => { setAnchorEl(e.currentTarget); setSelectedOrder(order); }}
+                              disabled={!statusFlow[order.status] || statusFlow[order.status].length === 0}
+                            >
+                              <MoreVert fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
                       </TableCell>
                     </TableRow>
                   ))
@@ -242,24 +336,151 @@ const AdminOrders = () => {
 
       {/* Status Update Menu */}
       <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)}>
-        {selectedOrder && statusFlow[selectedOrder.status]?.map((status) => (
-          <MenuItem key={status} onClick={() => {
-            if (status === 'shipping') { setOpenTrackingDialog(true); }
-            else { handleStatusUpdate(selectedOrder.id, status); }
-          }}>Mark as {formatStatus(status)}</MenuItem>
-        ))}
+        {selectedOrder && (() => {
+          // Get FRESH order data from orders array
+          const freshOrder = orders.find(o => o.id === selectedOrder.id);
+          if (!freshOrder) return null;
+
+          // Get available statuses for this order
+          const availableStatuses = statusFlow[freshOrder.status] || [];
+
+          // Filter out "shipping" if tracking already exists
+          const filteredStatuses = availableStatuses.filter(status => {
+            if (status === 'shipping' && freshOrder.tracking_number) {
+              return false; // Hide it
+            }
+            return true;
+          });
+
+          // If nothing to show, close the menu
+          if (filteredStatuses.length === 0) {
+            return (
+              <MenuItem disabled>
+                <Typography variant="body2" color="text.secondary">No actions available</Typography>
+              </MenuItem>
+            );
+          }
+
+          return filteredStatuses.map((status) => (
+            <MenuItem key={status} onClick={() => {
+              setAnchorEl(null); // Close menu first
+              if (status === 'shipping') {
+                setOpenTrackingDialog(true);
+              } else {
+                handleStatusUpdate(freshOrder.id, status);
+              }
+            }}>
+              Mark as {formatStatus(status)}
+            </MenuItem>
+          ));
+        })()}
       </Menu>
 
       {/* Tracking Dialog */}
-      <Dialog open={openTrackingDialog} onClose={() => setOpenTrackingDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>Add Tracking Number</DialogTitle>
+      <Dialog open={openTrackingDialog} onClose={() => setOpenTrackingDialog(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+        <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>Add Tracking Information</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" mb={2}>Order #{selectedOrder?.id}</Typography>
-          <TextField fullWidth label="Tracking Number" value={trackingNumber} onChange={(e) => setTrackingNumber(e.target.value)} autoFocus size="small" sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+          <Typography variant="body2" color="text.secondary" mb={2.5}>
+            Order #{selectedOrder?.id} • Total: ${Number(selectedOrder?.total || 0).toFixed(2)}
+          </Typography>
+
+          <Stack spacing={2.5}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Delivery Service</InputLabel>
+              <Select value={deliveryService} onChange={(e) => setDeliveryService(e.target.value)} label="Delivery Service" sx={{ borderRadius: 2 }}>
+                <MenuItem value="grab_express">
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    <Box sx={{ width: 28, height: 28, borderRadius: 1, bgcolor: '#00B14F', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.7rem' }}>Grab</Box>
+                    <Box>
+                      <Typography variant="body2" fontWeight={600}>Grab Express</Typography>
+                      <Typography variant="caption" color="text.secondary">Car Delivery</Typography>
+                    </Box>
+                  </Stack>
+                </MenuItem>
+                <MenuItem value="grab_bike">
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    <Box sx={{ width: 28, height: 28, borderRadius: 1, bgcolor: '#00B14F', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.7rem' }}>Grab</Box>
+                    <Box>
+                      <Typography variant="body2" fontWeight={600}>Grab Bike</Typography>
+                      <Typography variant="caption" color="text.secondary">Motorcycle Delivery</Typography>
+                    </Box>
+                  </Stack>
+                </MenuItem>
+                <MenuItem value="nham24">
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    <Box sx={{ width: 28, height: 28, borderRadius: 1, bgcolor: '#E94E1B', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.65rem' }}>N24</Box>
+                    <Box>
+                      <Typography variant="body2" fontWeight={600}>Nham24 Delivery</Typography>
+                      <Typography variant="caption" color="text.secondary">Express Delivery</Typography>
+                    </Box>
+                  </Stack>
+                </MenuItem>
+                <MenuItem value="virak_buntham">
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    <Box sx={{ width: 28, height: 28, borderRadius: 1, bgcolor: '#003D7A', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.6rem' }}>VB</Box>
+                    <Box>
+                      <Typography variant="body2" fontWeight={600}>Virak Buntham Express</Typography>
+                      <Typography variant="caption" color="text.secondary">Nationwide Delivery</Typography>
+                    </Box>
+                  </Stack>
+                </MenuItem>
+                <MenuItem value="jnt_express">
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    <Box sx={{ width: 28, height: 28, borderRadius: 1, bgcolor: '#EE2A2F', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.65rem' }}>J&T</Box>
+                    <Box>
+                      <Typography variant="body2" fontWeight={600}>J&T Express</Typography>
+                      <Typography variant="caption" color="text.secondary">Courier Service</Typography>
+                    </Box>
+                  </Stack>
+                </MenuItem>
+                <MenuItem value="dhl">
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    <Box sx={{ width: 28, height: 28, borderRadius: 1, bgcolor: '#FFCC00', color: '#D40511', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.65rem' }}>DHL</Box>
+                    <Box>
+                      <Typography variant="body2" fontWeight={600}>DHL Express</Typography>
+                      <Typography variant="caption" color="text.secondary">International Shipping</Typography>
+                    </Box>
+                  </Stack>
+                </MenuItem>
+                <MenuItem value="other">
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    <Box sx={{ width: 28, height: 28, borderRadius: 1, bgcolor: '#64748B', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.65rem' }}>?</Box>
+                    <Box>
+                      <Typography variant="body2" fontWeight={600}>Other</Typography>
+                      <Typography variant="caption" color="text.secondary">Custom Delivery</Typography>
+                    </Box>
+                  </Stack>
+                </MenuItem>
+              </Select>
+            </FormControl>
+
+            <TextField fullWidth label="Tracking Number / Booking ID" value={trackingNumber}
+              onChange={(e) => setTrackingNumber(e.target.value)} autoFocus size="small"
+              placeholder="Enter tracking or booking number"
+              helperText="Enter the tracking number from the delivery service"
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+
+            <TextField fullWidth label="Driver Phone Number (Optional)" value={deliveryPhone}
+              onChange={(e) => setDeliveryPhone(e.target.value)} size="small"
+              placeholder="Enter driver's phone number for customer contact"
+              InputProps={{
+                startAdornment: <Phone sx={{ color: '#94a3b8', mr: 1, fontSize: 18 }} />,
+              }}
+              helperText="Customer can contact the driver directly via this number"
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+
+            <TextField fullWidth label="Delivery Notes (Optional)" value={deliveryNotes}
+              onChange={(e) => setDeliveryNotes(e.target.value)} multiline rows={2} size="small"
+              placeholder="E.g., Driver name, estimated delivery time, special instructions..."
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ p: 3, pt: 0 }}>
           <Button onClick={() => setOpenTrackingDialog(false)} sx={{ borderRadius: 2, textTransform: 'none' }}>Cancel</Button>
-          <Button variant="contained" onClick={handleShippingUpdate} disabled={!trackingNumber.trim()} sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}>Update & Mark as Shipping</Button>
+          <Button variant="contained" onClick={handleShippingUpdate} disabled={!trackingNumber.trim() || !deliveryService}
+            sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600, boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)' }}>
+            Update & Mark as Shipping
+          </Button>
         </DialogActions>
       </Dialog>
 

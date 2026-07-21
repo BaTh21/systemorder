@@ -20,8 +20,7 @@ import {
   Paper,
   LinearProgress,
   Stack,
-  useMediaQuery,
-  useTheme,
+  Button,
 } from '@mui/material';
 import {
   ShoppingCart,
@@ -51,14 +50,12 @@ const statusColors = {
 };
 
 const AdminDashboard = () => {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'md'));
-  
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [orderPage, setOrderPage] = useState(1);
+  const [ordersPerPage] = useState(5);
 
   const fetchDashboard = useCallback(async () => {
     try {
@@ -97,6 +94,8 @@ const AdminDashboard = () => {
   };
 
   const sortedRecentOrders = [...(dashboardData?.recent_orders || [])].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const totalOrderPages = Math.ceil(sortedRecentOrders.length / ordersPerPage) || 1;
+  const paginatedOrders = sortedRecentOrders.slice((orderPage - 1) * ordersPerPage, orderPage * ordersPerPage);
 
   return (
     <Container maxWidth="xl" sx={{ py: { xs: 2, sm: 4 } }}>
@@ -157,11 +156,11 @@ const AdminDashboard = () => {
               <Typography variant="h6" gutterBottom sx={{ fontSize: { xs: '0.9rem', sm: '1rem', md: '1.25rem' } }}>
                 <TrendingUp sx={{ mr: 1, verticalAlign: 'middle' }} />Revenue (Last 7 Days)
               </Typography>
-              <ResponsiveContainer width="100%" height={isMobile ? 200 : isTablet ? 250 : 300}>
+              <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={dashboardData?.revenue_chart || []}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fontSize: isMobile ? 10 : 12 }} />
-                  <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip formatter={(value) => [`$${Number(value).toLocaleString()}`, 'Revenue']} />
                   <Bar dataKey="revenue" fill="#1976d2" radius={[4, 4, 0, 0]} name="All Revenue" />
                   <Bar dataKey="completed" fill="#4caf50" radius={[4, 4, 0, 0]} name="Completed" />
@@ -196,12 +195,18 @@ const AdminDashboard = () => {
         </Grid>
       </Grid>
 
-      {/* Recent Orders */}
+      {/* Recent Orders with Pagination */}
       <Card>
         <CardContent sx={{ p: { xs: 1.5, sm: 2, md: 3 } }}>
-          <Typography variant="h6" gutterBottom sx={{ fontSize: { xs: '0.9rem', sm: '1rem', md: '1.25rem' } }}>
-            📋 Recent Orders <Chip label="ASC" size="small" color="primary" sx={{ ml: 1, fontSize: { xs: '0.6rem', sm: '0.75rem' } }} />
-          </Typography>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+            <Typography sx={{ fontSize: { xs: '0.9rem', sm: '1rem', md: '1.25rem' }, fontWeight: 600 }}>
+              📋 Recent Orders <Chip label="ASC" size="small" color="primary" sx={{ ml: 1, fontSize: { xs: '0.6rem', sm: '0.75rem' } }} />
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Page {orderPage} of {totalOrderPages}
+            </Typography>
+          </Stack>
+
           <TableContainer component={Paper} variant="outlined">
             <Table size="small">
               <TableHead>
@@ -214,15 +219,25 @@ const AdminDashboard = () => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {sortedRecentOrders.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} align="center"><Typography variant="body2" color="text.secondary" sx={{ py: 2, fontSize: { xs: '0.7rem', sm: '0.875rem' } }}>No orders yet</Typography></TableCell></TableRow>
+                {paginatedOrders.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} align="center">
+                      <Typography variant="body2" color="text.secondary" sx={{ py: 2, fontSize: { xs: '0.7rem', sm: '0.875rem' } }}>No orders yet</Typography>
+                    </TableCell>
+                  </TableRow>
                 ) : (
-                  sortedRecentOrders.slice(0, isMobile ? 5 : 10).map((order) => (
+                  paginatedOrders.map((order) => (
                     <TableRow key={order.id} hover>
-                      <TableCell sx={{ fontFamily: 'monospace', fontSize: { xs: '0.65rem', sm: '0.8rem' } }}>#{String(order.id).padStart(6, '0')}</TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace', fontSize: { xs: '0.65rem', sm: '0.8rem' } }}>
+                        #{String(order.id).padStart(6, '0')}
+                      </TableCell>
                       <TableCell sx={{ fontSize: { xs: '0.65rem', sm: '0.8rem' } }}>{order.customer}</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: { xs: '0.65rem', sm: '0.8rem' }, display: { xs: 'none', sm: 'table-cell' } }}>${Number(order.total || 0).toLocaleString()}</TableCell>
-                      <TableCell><Chip label={formatStatus(order.status)} color={statusColors[order.status] || 'default'} size="small" sx={{ fontSize: { xs: '0.6rem', sm: '0.7rem' } }} /></TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', fontSize: { xs: '0.65rem', sm: '0.8rem' }, display: { xs: 'none', sm: 'table-cell' } }}>
+                        ${Number(order.total || 0).toLocaleString()}
+                      </TableCell>
+                      <TableCell>
+                        <Chip label={formatStatus(order.status)} color={statusColors[order.status] || 'default'} size="small" sx={{ fontSize: { xs: '0.6rem', sm: '0.7rem' } }} />
+                      </TableCell>
                       <TableCell sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' }, display: { xs: 'none', md: 'table-cell' } }}>
                         {order.created_at ? new Date(order.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'N/A'}
                       </TableCell>
@@ -232,6 +247,27 @@ const AdminDashboard = () => {
               </TableBody>
             </Table>
           </TableContainer>
+
+          {/* Pagination */}
+          {sortedRecentOrders.length > ordersPerPage && (
+            <Stack direction="row" justifyContent="center" alignItems="center" spacing={1} mt={2}>
+              <Button size="small" disabled={orderPage === 1} onClick={() => setOrderPage(orderPage - 1)}
+                sx={{ textTransform: 'none', minWidth: 50, fontSize: '0.75rem' }}>
+                ← Prev
+              </Button>
+              {Array.from({ length: totalOrderPages }, (_, i) => i + 1).map((pageNum) => (
+                <Chip key={pageNum} label={pageNum} size="small"
+                  onClick={() => setOrderPage(pageNum)}
+                  color={orderPage === pageNum ? 'primary' : 'default'}
+                  variant={orderPage === pageNum ? 'filled' : 'outlined'}
+                  sx={{ cursor: 'pointer', minWidth: 28, height: 24, fontWeight: 600, fontSize: '0.7rem' }} />
+              ))}
+              <Button size="small" disabled={orderPage === totalOrderPages} onClick={() => setOrderPage(orderPage + 1)}
+                sx={{ textTransform: 'none', minWidth: 50, fontSize: '0.75rem' }}>
+                Next →
+              </Button>
+            </Stack>
+          )}
         </CardContent>
       </Card>
 

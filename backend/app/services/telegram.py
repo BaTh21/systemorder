@@ -198,8 +198,40 @@ async def send_order_status_update(order_id: int, new_status: str):
             message = f"<b>📢 Order Update - #{order.id}</b>\n\n"
             message += status_messages.get(status_value, f"Status: {status_value}")
             
+            # 🔴 FIX: Format tracking info nicely for Telegram
             if status_value == "shipping" and order.tracking_number:
-                message += f"\n\n<b>📦 Tracking:</b>\n<code>{order.tracking_number}</code>"
+                tracking = order.tracking_number
+                
+                # Parse tracking info
+                if ':' in tracking:
+                    service_key = tracking.split(':')[0].strip()
+                    tracking_id = tracking.split(':')[1].strip() if ':' in tracking else tracking
+                    
+                    service_names = {
+                        'grab_express': '🚗 Grab Express (Car)',
+                        'grab_bike': '🏍️ Grab Bike (Motorcycle)',
+                        'nham24': '🛵 Nham24 Delivery',
+                        'virak_buntham': '🚌 Virak Buntham Express',
+                        'jnt_express': '📦 J&T Express',
+                        'dhl': '✈️ DHL Express',
+                        'other': '📋 Delivery Service',
+                    }
+                    
+                    service_name = service_names.get(service_key, service_key)
+                    
+                    message += f"\n\n<b>📦 Delivery Information:</b>"
+                    message += f"\n<b>Service:</b> {service_name}"
+                    message += f"\n<b>Tracking ID:</b> <code>{tracking_id}</code>"
+                    
+                    # Add tracking tips based on service
+                    if 'grab' in service_key:
+                        message += f"\n\n<i>💡 You can track your Grab delivery in the Grab app.</i>"
+                    elif 'nham24' in service_key:
+                        message += f"\n\n<i>💡 Track your order in the Nham24 app.</i>"
+                    elif 'dhl' in service_key:
+                        message += f"\n\n<i>💡 Track at: https://www.dhl.com/en/express/tracking.html</i>"
+                else:
+                    message += f"\n\n<b>📦 Tracking Number:</b> <code>{tracking}</code>"
             
             if status_value == "waiting_payment":
                 message += f"\n\n<b>Amount:</b> ${order.total}"
