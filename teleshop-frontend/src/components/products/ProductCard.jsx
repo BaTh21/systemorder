@@ -52,7 +52,7 @@ const ProductCard = ({ product }) => {
   const handleToggleFavorite = (e) => { e.stopPropagation(); setIsFavorite(!isFavorite); };
   const handleViewDetails = () => { navigate(`/products/${product.slug}`); };
 
-  const truncateText = (text, maxLength = 120) => {
+  const truncateDescription = (text, maxLength = 120) => {
     if (!text) return 'No description available';
     if (text.length <= maxLength) return text;
     return text.substring(0, maxLength).trim() + '...';
@@ -69,7 +69,6 @@ const ProductCard = ({ product }) => {
         '&:hover': { boxShadow: 6, transform: 'translateY(-2px)' },
       }}
     >
-      {/* Image Section */}
       <Box
         sx={{
           width: { xs: '100%', sm: 200, md: 250 },
@@ -99,42 +98,47 @@ const ProductCard = ({ product }) => {
         )}
       </Box>
 
-      {/* Content Section - Always visible */}
       <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, p: { xs: 1.5, sm: 2 }, minWidth: 0 }}>
         <CardContent sx={{ flex: '1 0 auto', pb: { xs: 0.5, sm: 1 }, px: { xs: 0.5, sm: 1 }, '&:last-child': { pb: { xs: 0.5, sm: 1 } } }}>
           
-          {/* Product Name */}
+          {/* Product Name - Single line with ellipsis */}
           <Typography
             variant="h6"
             component="div"
             onClick={handleViewDetails}
+            noWrap
             sx={{ 
               cursor: 'pointer', 
               fontSize: { xs: '0.9rem', sm: '1rem', md: '1.1rem' },
               fontWeight: 600,
               mb: 0.5,
               '&:hover': { color: 'primary.main' },
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
             }}
           >
             {product.name}
           </Typography>
 
-          {/* Description - Hidden on small mobile, shown on larger */}
-          <Typography 
-            variant="body2" 
-            color="text.secondary" 
-            sx={{ 
-              mb: 1.5, 
-              fontSize: { xs: '0.7rem', sm: '0.8rem', md: '0.875rem' },
-              display: { xs: 'none', sm: 'block' },
-            }}
-          >
-            {truncateText(product.description, isMobile ? 60 : 150)}
-          </Typography>
+          {/* Description - 2 lines max with ellipsis */}
+          {!isMobile && (
+            <Typography 
+              variant="body2" 
+              color="text.secondary" 
+              sx={{ 
+                mb: 1.5, 
+                fontSize: { sm: '0.8rem', md: '0.875rem' },
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                lineHeight: 1.5,
+                minHeight: 40,
+                wordBreak: 'break-word',
+              }}
+            >
+              {truncateDescription(product.description, 120)}
+            </Typography>
+          )}
 
           {/* Price */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
