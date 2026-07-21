@@ -110,7 +110,7 @@ const ProductDetailPage = () => {
   return (
     <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh', py: 4 }}>
       <Container maxWidth="lg">
-        
+
         {/* Back Button & Breadcrumbs */}
         <Stack direction="row" alignItems="center" spacing={2} mb={3}>
           <Button
@@ -121,29 +121,29 @@ const ProductDetailPage = () => {
             Back
           </Button>
           <Breadcrumbs separator={<NavigateNext fontSize="small" />}>
-            <Link 
-              component="button" 
+            <Link
+              component="button"
               onClick={() => navigate('/')}
-              underline="hover" 
+              underline="hover"
               color="inherit"
               sx={{ fontSize: '0.85rem' }}
             >
               Home
             </Link>
-            <Link 
-              component="button" 
+            <Link
+              component="button"
               onClick={() => navigate('/products')}
-              underline="hover" 
+              underline="hover"
               color="inherit"
               sx={{ fontSize: '0.85rem' }}
             >
               Products
             </Link>
             {product.category && (
-              <Link 
-                component="button" 
+              <Link
+                component="button"
                 onClick={() => navigate(`/products?category_id=${product.category.id}`)}
-                underline="hover" 
+                underline="hover"
                 color="inherit"
                 sx={{ fontSize: '0.85rem' }}
               >
@@ -158,41 +158,34 @@ const ProductDetailPage = () => {
 
         <Paper elevation={0} sx={{ p: 3, borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white' }}>
           <Grid container spacing={4}>
-            
+
             {/* Left - Images */}
             <Grid item xs={12} md={6}>
-              <Box sx={{ position: 'relative' }}>
+              <Box sx={{ position: 'relative', width: '100%', mb: 2 }}>
                 <Box
                   component="img"
                   src={product.images?.[selectedImage]?.image_url || 'https://via.placeholder.com/500x500?text=Product'}
                   alt={product.name}
-                  sx={{ 
-                    width: '100%', 
-                    borderRadius: 2, 
-                    mb: 2,
+                  sx={{
+                    width: '100%',
+                    borderRadius: 2,
                     bgcolor: '#f1f5f9',
                     aspectRatio: '1/1',
                     objectFit: 'cover',
+                    maxHeight: { xs: 350, sm: 400, md: 500 },
                   }}
                   onError={(e) => { e.target.src = 'https://via.placeholder.com/500x500?text=Product'; }}
                 />
-                
-                {/* Favorite Button */}
-                <IconButton 
+
+                <IconButton
                   onClick={() => setIsFavorite(!isFavorite)}
-                  sx={{ 
-                    position: 'absolute', 
-                    top: 12, 
-                    right: 12,
-                    bgcolor: 'white',
-                    boxShadow: 2,
-                    '&:hover': { bgcolor: 'white' },
-                  }}
+                  sx={{ position: 'absolute', top: 8, right: 8, bgcolor: 'white', boxShadow: 2, '&:hover': { bgcolor: 'white' } }}
                 >
                   {isFavorite ? <Favorite color="error" /> : <FavoriteBorder />}
                 </IconButton>
               </Box>
-              
+
+              {/* Thumbnail Images */}
               {product.images && product.images.length > 1 && (
                 <Grid container spacing={1}>
                   {product.images.map((image, index) => (
@@ -205,7 +198,7 @@ const ProductDetailPage = () => {
                         onError={(e) => { e.target.src = 'https://via.placeholder.com/100?text=N/A'; }}
                         sx={{
                           width: '100%',
-                          height: 80,
+                          height: { xs: 60, sm: 70, md: 80 },
                           objectFit: 'cover',
                           borderRadius: 1.5,
                           cursor: 'pointer',
@@ -226,7 +219,7 @@ const ProductDetailPage = () => {
                 <Typography variant="h4" fontWeight={700} color="#0f172a" gutterBottom>
                   {product.name}
                 </Typography>
-                
+
                 {/* Price */}
                 <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, mb: 2 }}>
                   <Typography variant="h4" color="#059669" fontWeight={700}>
@@ -237,9 +230,9 @@ const ProductDetailPage = () => {
                       <Typography variant="h6" color="#94a3b8" sx={{ textDecoration: 'line-through' }}>
                         ${product.base_price}
                       </Typography>
-                      <Chip 
-                        label={`-${product.discount_percent}% OFF`} 
-                        color="error" 
+                      <Chip
+                        label={`-${product.discount_percent}% OFF`}
+                        color="error"
                         size="small"
                         sx={{ fontWeight: 600 }}
                       />
@@ -302,10 +295,10 @@ const ProductDetailPage = () => {
                     {product.category && (
                       <Stack direction="row" justifyContent="space-between">
                         <Typography variant="body2" color="#94a3b8">Category</Typography>
-                        <Chip 
-                          label={product.category.name} 
-                          size="small" 
-                          variant="outlined" 
+                        <Chip
+                          label={product.category.name}
+                          size="small"
+                          variant="outlined"
                           onClick={() => navigate(`/products?category_id=${product.category.id}`)}
                           sx={{ cursor: 'pointer', height: 24, fontSize: '0.7rem' }}
                         />
@@ -330,19 +323,19 @@ const ProductDetailPage = () => {
                     startIcon={<ShoppingCart />}
                     onClick={handleAddToCart}
                     disabled={product.stock === 0}
-                    sx={{ 
-                      flexGrow: 1, 
-                      borderRadius: 2, 
-                      textTransform: 'none', 
+                    sx={{
+                      flexGrow: 1,
+                      borderRadius: 2,
+                      textTransform: 'none',
                       fontWeight: 600,
                       py: 1.2,
                     }}
                   >
                     {product.stock === 0 ? 'Out of Stock' : 'Add to Cart'}
                   </Button>
-                  <IconButton 
-                    sx={{ 
-                      border: '1px solid #e2e8f0', 
+                  <IconButton
+                    sx={{
+                      border: '1px solid #e2e8f0',
                       borderRadius: 2,
                       '&:hover': { bgcolor: '#f1f5f9' },
                     }}
@@ -368,9 +361,9 @@ const ProductDetailPage = () => {
         onClose={() => setSnackbar({ ...snackbar, open: false })}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       >
-        <Alert 
-          severity={snackbar.severity} 
-          variant="filled" 
+        <Alert
+          severity={snackbar.severity}
+          variant="filled"
           sx={{ borderRadius: 2 }}
           onClose={() => setSnackbar({ ...snackbar, open: false })}
         >

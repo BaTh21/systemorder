@@ -15,7 +15,7 @@ const ImageWithFallback = ({
   src,
   alt = '',
   width = '100%',
-  height = 'auto',
+  height = '100%',
   objectFit = 'cover',
   sx = {},
   ...props
@@ -23,20 +23,11 @@ const ImageWithFallback = ({
   const [imgSrc, setImgSrc] = useState(src || PLACEHOLDER_SVG);
   const [error, setError] = useState(false);
 
-  // Process the image URL
   const getProcessedUrl = (url) => {
     if (!url) return PLACEHOLDER_SVG;
-    
-    // If it's already a full URL (Cloudinary, etc.), return as is
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      return url;
-    }
-    
-    // For local paths
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    if (url.startsWith('/')) {
-      return `${API_BASE_URL}${url}`;
-    }
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+    if (url.startsWith('/')) return `${API_BASE_URL}${url}`;
     return `${API_BASE_URL}/${url}`;
   };
 
@@ -49,10 +40,9 @@ const ImageWithFallback = ({
   };
 
   const handleLoad = () => {
-    console.log('✅ Image loaded successfully:', imgSrc);
+    console.log('✅ Image loaded:', imgSrc);
   };
 
-  // Update src when prop changes
   if (src !== imgSrc && !error) {
     const processedUrl = getProcessedUrl(src);
     if (processedUrl !== imgSrc) {
@@ -63,21 +53,30 @@ const ImageWithFallback = ({
 
   return (
     <Box
-      component="img"
-      src={imgSrc}
-      alt={alt}
-      onLoad={handleLoad}
-      onError={handleError}
       sx={{
         width,
         height,
-        objectFit,
-        display: 'block',
-        backgroundColor: '#f5f5f5',
+        overflow: 'hidden',
+        position: 'relative',
+        bgcolor: '#f1f5f9',
         ...sx,
       }}
-      {...props}
-    />
+    >
+      <Box
+        component="img"
+        src={imgSrc}
+        alt={alt}
+        onLoad={handleLoad}
+        onError={handleError}
+        sx={{
+          width: '100%',
+          height: '100%',
+          objectFit: objectFit,
+          display: 'block',
+        }}
+        {...props}
+      />
+    </Box>
   );
 };
 

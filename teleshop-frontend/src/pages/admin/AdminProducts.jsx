@@ -253,7 +253,7 @@ const AdminProducts = () => {
   return (
     <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh', py: 4 }}>
       <Container maxWidth="xl">
-        
+
         {/* Header */}
         <Paper elevation={0} sx={{ p: 3, mb: 3, borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white' }}>
           <Stack direction="row" alignItems="center" spacing={2} mb={2}>
@@ -340,11 +340,21 @@ const AdminProducts = () => {
                               variant="rounded"
                               src={getImageUrl(product.images[0].image_url)}
                               alt={product.name}
-                              sx={{ width: 48, height: 48, bgcolor: '#f1f5f9' }}
+                              sx={{
+                                width: { xs: 40, sm: 48 },
+                                height: { xs: 40, sm: 48 },
+                                bgcolor: '#f1f5f9',
+                                '& img': {
+                                  objectFit: 'cover',
+                                  width: '100%',
+                                  height: '100%',
+                                },
+                              }}
                               onError={(e) => { e.target.src = getPlaceholderImage(); }}
                             >
                               <ImageIcon />
                             </Avatar>
+
                           ) : (
                             <Avatar variant="rounded" sx={{ width: 48, height: 48, bgcolor: '#f1f5f9' }}>
                               <ImageIcon sx={{ color: '#94a3b8' }} />
@@ -476,7 +486,7 @@ const AdminProducts = () => {
                 Upload Images
                 <input type="file" hidden multiple accept="image/*" onChange={handleImageUpload} />
               </Button>
-              
+
               {images.length === 0 ? (
                 <Box textAlign="center" py={4} bgcolor="#f8fafc" borderRadius={2}>
                   <ImageIcon sx={{ fontSize: 48, color: '#cbd5e1', mb: 1 }} />
@@ -526,7 +536,7 @@ const AdminProducts = () => {
                   Add Variant
                 </Button>
               </Stack>
-              
+
               {variants.length === 0 ? (
                 <Box textAlign="center" py={4} bgcolor="#f8fafc" borderRadius={2}>
                   <Inventory sx={{ fontSize: 48, color: '#cbd5e1', mb: 1 }} />
