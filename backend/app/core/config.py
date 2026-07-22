@@ -33,8 +33,8 @@ class Settings(BaseSettings):
 
     # Payment Settings
     BANK_NAME: str = "ABA Bank"
-    BANK_ACCOUNT_NAME: str = "TeleShop Inc."
-    BANK_ACCOUNT_NUMBER: str = "000123456789"
+    BANK_ACCOUNT_NAME: str = "MOK KOLSAMBATH"
+    BANK_ACCOUNT_NUMBER: str = "003039935"
     BANK_SWIFT_CODE: str = "ABAAKHPP"
     BANK_ROUTING_NUMBER: str = "021000021"
     QR_CODE_URL: str = "/uploads/payments/qr-code.png"

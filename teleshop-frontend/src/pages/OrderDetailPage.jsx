@@ -4,8 +4,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   Container,
   Typography,
-  Card,
-  CardContent,
   Grid,
   Box,
   Chip,
@@ -19,7 +17,6 @@ import {
   TableHead,
   TableRow,
   Paper,
-  Alert,
   Stack,
   Avatar,
 } from '@mui/material';
@@ -31,9 +28,9 @@ import {
   Home,
   Receipt,
   CalendarToday,
-  Payment,
 } from '@mui/icons-material';
 import api from '../api/axios';
+import KHQRPayment from '../components/payment/KHQRPayment';
 
 const statusColors = {
   pending: 'default',
@@ -72,17 +69,12 @@ const OrderDetailPage = () => {
     setError(null);
     try {
       const response = await api.get(`/orders/${orderId}`);
-      console.log('Order detail:', response.data);
       setOrder(response.data);
     } catch (error) {
       console.error('Error fetching order:', error);
-      if (error.response?.status === 404) {
-        setError('Order not found');
-      } else if (error.response?.status === 403) {
-        setError('You do not have permission to view this order');
-      } else {
-        setError('Failed to load order details');
-      }
+      if (error.response?.status === 404) setError('Order not found');
+      else if (error.response?.status === 403) setError('You do not have permission to view this order');
+      else setError('Failed to load order details');
     } finally {
       setLoading(false);
     }
@@ -97,15 +89,9 @@ const OrderDetailPage = () => {
     if (!dateStr) return 'N/A';
     try {
       return new Date(dateStr).toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
+        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
       });
-    } catch {
-      return 'Invalid Date';
-    }
+    } catch { return 'Invalid Date'; }
   };
 
   const formatPrice = (price) => {
@@ -116,7 +102,8 @@ const OrderDetailPage = () => {
   const getTrackingInfo = (tracking) => {
     if (!tracking) return null;
     if (tracking.includes(':')) {
-      const [service, id] = tracking.split(': ');
+      const [service, ...rest] = tracking.split(': ');
+      const id = rest.join(': ');
       return {
         service: deliveryServices[service] || deliveryServices['other'],
         id: id || tracking,
@@ -125,7 +112,23 @@ const OrderDetailPage = () => {
     return { service: deliveryServices['other'], id: tracking };
   };
 
+  const getTrackingPhone = (tracking) => {
+    if (!tracking || !tracking.includes('📞')) return '';
+    const phonePart = tracking.split('📞')[1];
+    if (phonePart) return phonePart.split('|')[0].trim();
+    return '';
+  };
+
+  const getTrackingNotes = (tracking) => {
+    if (!tracking || !tracking.includes('📝')) return '';
+    const notesPart = tracking.split('📝')[1];
+    if (notesPart) return notesPart.trim();
+    return '';
+  };
+
   const trackingInfo = order?.tracking_number ? getTrackingInfo(order.tracking_number) : null;
+  const trackingPhone = order?.tracking_number ? getTrackingPhone(order.tracking_number) : '';
+  const trackingNotes = order?.tracking_number ? getTrackingNotes(order.tracking_number) : '';
 
   if (loading) {
     return (
@@ -173,7 +176,7 @@ const OrderDetailPage = () => {
 
         <Grid container spacing={3}>
           
-          {/* Order Items */}
+          {/* Left - Order Items */}
           <Grid item xs={12} md={8}>
             <Paper elevation={0} sx={{ p: 3, borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white' }}>
               <Typography variant="h6" fontWeight={700} color="#0f172a" gutterBottom>
@@ -240,10 +243,17 @@ const OrderDetailPage = () => {
                   </Typography>
                 </Stack>
               </Box>
+
+              {/* KHQR Payment - Show when waiting payment */}
+              {order.status === 'waiting_payment' && (
+                <Box sx={{ mt: 3 }}>
+                  <KHQRPayment orderId={order.id} amount={order.total} />
+                </Box>
+              )}
             </Paper>
           </Grid>
 
-          {/* Sidebar */}
+          {/* Right - Sidebar */}
           <Grid item xs={12} md={4}>
             <Stack spacing={2.5}>
               
@@ -283,7 +293,7 @@ const OrderDetailPage = () => {
                 </Stack>
               </Paper>
 
-              {/* Tracking / Delivery Info */}
+              {/* Delivery Tracking */}
               {trackingInfo && (
                 <Paper elevation={0} sx={{ p: 2.5, borderRadius: 3, border: '1px solid #bbf7d0', bgcolor: '#f0fdf4' }}>
                   <Typography variant="subtitle1" fontWeight={700} color="#0f172a" gutterBottom>
@@ -299,9 +309,7 @@ const OrderDetailPage = () => {
                         <Typography variant="body2" fontWeight={600} color="#0f172a">
                           {trackingInfo.service.label}
                         </Typography>
-                        <Typography variant="caption" color="#64748b">
-                          Delivery Service
-                        </Typography>
+                        <Typography variant="caption" color="#64748b">Delivery Service</Typography>
                       </Box>
                     </Box>
                     <Divider />
@@ -311,6 +319,20 @@ const OrderDetailPage = () => {
                         {trackingInfo.id}
                       </Typography>
                     </Box>
+                    {trackingPhone && (
+                      <Box>
+                        <Typography variant="caption" color="#94a3b8">Driver Contact</Typography>
+                        <Typography variant="body2" fontWeight={600} color="#0f172a">
+                          📞 {trackingPhone}
+                        </Typography>
+                      </Box>
+                    )}
+                    {trackingNotes && (
+                      <Box sx={{ p: 1.5, bgcolor: '#fef3c7', borderRadius: 2 }}>
+                        <Typography variant="caption" color="#92400e" fontWeight={600}>📝 Notes</Typography>
+                        <Typography variant="body2" color="#92400e" mt={0.5}>{trackingNotes}</Typography>
+                      </Box>
+                    )}
                   </Stack>
                 </Paper>
               )}
