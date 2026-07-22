@@ -30,6 +30,7 @@ import {
   CalendarToday,
 } from '@mui/icons-material';
 import api from '../api/axios';
+import { useAuth } from '../contexts/AuthContext';
 import KHQRPayment from '../components/payment/KHQRPayment';
 
 const statusColors = {
@@ -56,6 +57,9 @@ const deliveryServices = {
 const OrderDetailPage = () => {
   const { orderId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -73,7 +77,7 @@ const OrderDetailPage = () => {
     } catch (error) {
       console.error('Error fetching order:', error);
       if (error.response?.status === 404) setError('Order not found');
-      else if (error.response?.status === 403) setError('You do not have permission to view this order');
+      else if (error.response?.status === 403) setError('You do not have permission');
       else setError('Failed to load order details');
     } finally {
       setLoading(false);
@@ -146,8 +150,8 @@ const OrderDetailPage = () => {
           <Typography variant="h5" fontWeight={700} color="#0f172a" gutterBottom>
             {error || 'Order not found'}
           </Typography>
-          <Button variant="contained" onClick={() => navigate('/orders')} startIcon={<ArrowBack />} sx={{ mt: 2, borderRadius: 2, textTransform: 'none' }}>
-            Back to Orders
+          <Button variant="contained" onClick={() => navigate(isAdmin ? '/admin/orders' : '/orders')} startIcon={<ArrowBack />} sx={{ mt: 2, borderRadius: 2, textTransform: 'none' }}>
+            Back to {isAdmin ? 'Orders Management' : 'My Orders'}
           </Button>
         </Container>
       </Box>
@@ -161,7 +165,11 @@ const OrderDetailPage = () => {
         {/* Header */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, flexWrap: 'wrap', gap: 2 }}>
           <Stack direction="row" spacing={2} alignItems="center">
-            <Button onClick={() => navigate('/orders')} startIcon={<ArrowBack />} sx={{ textTransform: 'none', fontWeight: 500, color: '#475569' }}>
+            <Button 
+              onClick={() => navigate(isAdmin ? '/admin/orders' : '/orders')} 
+              startIcon={<ArrowBack />} 
+              sx={{ textTransform: 'none', fontWeight: 500, color: '#475569' }}
+            >
               Back
             </Button>
             <Typography variant="h5" fontWeight={700} color="#0f172a">
@@ -199,7 +207,19 @@ const OrderDetailPage = () => {
                       order.items.map((item) => (
                         <TableRow key={item.id} hover>
                           <TableCell>
-                            <Typography variant="body2" fontWeight={500}>{item.product_name_snapshot || 'Unknown Product'}</Typography>
+                            <Stack direction="row" spacing={2} alignItems="center">
+                              <Avatar
+                                variant="rounded"
+                                src={item.product_image || ''}
+                                alt={item.product_name_snapshot}
+                                sx={{ width: 40, height: 40, bgcolor: '#f1f5f9', flexShrink: 0 }}
+                              >
+                                {!item.product_image && <Receipt sx={{ color: '#94a3b8', fontSize: 18 }} />}
+                              </Avatar>
+                              <Typography variant="body2" fontWeight={500}>
+                                {item.product_name_snapshot || 'Unknown Product'}
+                              </Typography>
+                            </Stack>
                           </TableCell>
                           <TableCell align="right">
                             <Typography variant="body2" color="#475569">{formatPrice(item.unit_price)}</Typography>

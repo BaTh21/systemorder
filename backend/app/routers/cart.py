@@ -16,13 +16,10 @@ async def get_cart(
     current_user = Depends(get_current_user), 
     db: AsyncSession = Depends(get_db)
 ):
-    """Get current user's cart"""
-    print(f"🛒 Get cart for user: {current_user.email} (ID: {current_user.id})")
+    """Get current user's cart with product images"""
     
-    # Eagerly load relationships to avoid MissingGreenlet error
     result = await db.execute(
-        select(CartItem)
-        .where(CartItem.user_id == current_user.id)
+        select(CartItem).where(CartItem.user_id == current_user.id)
     )
     cart_items = result.scalars().all()
     
@@ -36,7 +33,6 @@ async def get_cart(
         )
         product = product_result.scalars().first()
         
-        # Load variant if exists
         variant = None
         if item.variant_id:
             variant = await db.get(ProductVariant, item.variant_id)
@@ -50,7 +46,7 @@ async def get_cart(
         
         total_price = unit_price * item.quantity
         
-        # Get product image safely
+        # Get product image
         product_image = None
         if product and product.images:
             primary_image = next((img for img in product.images if img.is_primary), None)
@@ -70,7 +66,6 @@ async def get_cart(
             "total_price": round(total_price, 2)
         })
     
-    print(f"   Found {len(enriched_items)} items")
     return enriched_items
 
 @router.post("/items")

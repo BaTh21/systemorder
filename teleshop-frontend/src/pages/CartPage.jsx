@@ -50,7 +50,7 @@ const CartPage = () => {
   return (
     <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh', py: { xs: 2, sm: 4 } }}>
       <Container maxWidth="lg">
-        
+
         {/* Header */}
         <Stack direction="row" justifyContent="space-between" alignItems="center" mb={4} flexWrap="wrap" gap={2}>
           <Box>
@@ -67,7 +67,7 @@ const CartPage = () => {
         </Stack>
 
         <Grid container spacing={3}>
-          
+
           {/* Cart Items */}
           <Grid item xs={12} md={8}>
             <Stack spacing={2}>
@@ -91,6 +91,9 @@ const CartPage = () => {
                       src={item.product_image || ''}
                       alt={item.product_name}
                       sx={{ width: 80, height: 80, bgcolor: '#f1f5f9', flexShrink: 0 }}
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                      }}
                     >
                       {!item.product_image && <ShoppingCart sx={{ color: '#94a3b8' }} />}
                     </Avatar>
@@ -103,7 +106,7 @@ const CartPage = () => {
                       <Typography variant="body2" color="#94a3b8" sx={{ fontSize: '0.8rem' }}>
                         ${Number(item.unit_price || 0).toFixed(2)} each
                       </Typography>
-                      
+
                       {/* Quantity Controls */}
                       <Stack direction="row" alignItems="center" spacing={0.5} mt={1.5}>
                         <IconButton size="small" onClick={() => handleQuantityChange(item.id, item.quantity - 1)}
@@ -146,7 +149,7 @@ const CartPage = () => {
               <Typography variant="h6" fontWeight={700} color="#0f172a" gutterBottom>
                 Order Summary
               </Typography>
-              
+
               <Divider sx={{ my: 2 }} />
 
               <Stack spacing={2.5}>
@@ -159,7 +162,7 @@ const CartPage = () => {
                     ${totalPrice.toFixed(2)}
                   </Typography>
                 </Stack>
-                
+
                 {/* Shipping - Location Based */}
                 <Box sx={{ bgcolor: '#f8fafc', p: 2, borderRadius: 2, border: '1px solid #e2e8f0' }}>
                   <Stack direction="row" alignItems="center" spacing={1} mb={1.5}>
@@ -182,9 +185,9 @@ const CartPage = () => {
                     Select location at checkout
                   </Typography>
                 </Box>
-                
+
                 <Divider />
-                
+
                 {/* Total */}
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Box>
@@ -199,7 +202,7 @@ const CartPage = () => {
                     ${totalPrice.toFixed(2)}
                   </Typography>
                 </Stack>
-                
+
                 {/* Checkout Button */}
                 <Button
                   variant="contained"
@@ -207,10 +210,10 @@ const CartPage = () => {
                   size="large"
                   component={RouterLink}
                   to="/checkout"
-                  sx={{ 
-                    borderRadius: 2.5, 
-                    textTransform: 'none', 
-                    fontWeight: 700, 
+                  sx={{
+                    borderRadius: 2.5,
+                    textTransform: 'none',
+                    fontWeight: 700,
                     py: 1.5,
                     fontSize: '1rem',
                     bgcolor: '#2563eb',

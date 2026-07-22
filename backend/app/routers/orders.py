@@ -7,6 +7,7 @@ from app.core.deps import get_current_user
 from app.core.database import get_db
 from app.services.order import create_order_from_cart
 from app.models.order import Order, OrderItem
+from app.models.product import Product
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -132,28 +133,42 @@ async def get_order(
     current_user = Depends(get_current_user), 
     db: AsyncSession = Depends(get_db)
 ):
-    """Get order by ID - Customers see only their orders, Admins see all"""
+    """Get order by ID with items and product images"""
     
-    # Build query with eager loading
-    query = select(Order).options(
-        selectinload(Order.items),
-        selectinload(Order.user)
-    )
-    
-    # If not admin, only show their own orders
-    if current_user.role != "admin":
-        query = query.where(
-            Order.id == order_id,
-            Order.user_id == current_user.id
+    result = await db.execute(
+        select(Order)
+        .options(
+            selectinload(Order.items),
+            selectinload(Order.user)
         )
-    else:
-        query = query.where(Order.id == order_id)
-    
-    result = await db.execute(query)
+        .where(Order.id == order_id)
+    )
     order = result.scalars().first()
     
     if not order:
         raise HTTPException(404, "Order not found")
+    
+    if current_user.role != "admin" and order.user_id != current_user.id:
+        raise HTTPException(404, "Order not found")
+    
+    # Build items list with product images
+    items_list = []
+    for item in (order.items or []):
+        # Get product image if available
+        product_image = None
+        if item.product_id:
+            product_result = await db.execute(
+                select(Product)
+                .options(selectinload(Product.images))
+                .where(Product.id == item.product_id)
+            )
+            product = product_result.scalars().first()
+            if product and product.images:
+                primary = next((img for img in product.images if img.is_primary), None)
+                if primary:
+                    product_image = primary.image_url
+                elif len(product.images) > 0:
+                    product_image = product.images[0].image_url
     
     # Build response
     items_list = []
@@ -163,6 +178,7 @@ async def get_order(
             "product_id": item.product_id,
             "variant_id": item.variant_id,
             "product_name_snapshot": item.product_name_snapshot,
+            "product_image": product_image,
             "unit_price": float(item.unit_price),
             "quantity": item.quantity,
             "total_price": float(item.total_price)
