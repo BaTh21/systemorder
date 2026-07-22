@@ -2,48 +2,15 @@
 import { useState, useEffect } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import {
-  AppBar,
-  Toolbar,
-  Typography,
-  Button,
-  IconButton,
-  Badge,
-  Box,
-  Menu,
-  MenuItem,
-  ListItemIcon,
-  ListItemText,
-  Divider,
-  Chip,
-  Stack,
-  Container,
-  Avatar,
-  Drawer,
-  useMediaQuery,
-  useTheme,
+  AppBar, Toolbar, Typography, Button, IconButton, Badge, Box,
+  Menu, MenuItem, ListItemIcon, ListItemText, Divider, Chip,
+  Stack, Container, Avatar, Drawer, useMediaQuery, useTheme,
 } from '@mui/material';
 import {
-  ShoppingCart,
-  Person,
-  KeyboardArrowDown,
-  Smartphone,
-  Laptop,
-  Headphones,
-  CameraAlt,
-  SportsEsports,
-  Checkroom,
-  Chair,
-  FitnessCenter,
-  ShoppingBag,
-  Dashboard,
-  Receipt,
-  Logout,
-  Login,
-  PersonAdd,
-  LocalOffer,
-  Menu as MenuIcon,
-  Close,
-  Mail,
+  ShoppingCart, Person, KeyboardArrowDown, Smartphone, Laptop,
+  Headphones, CameraAlt, SportsEsports, Checkroom, Chair,
+  FitnessCenter, ShoppingBag, Dashboard, Receipt, Logout, Login,
+  PersonAdd, LocalOffer, Menu as MenuIcon, Close, Mail, Chat,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCart } from '../../contexts/CartContext';
@@ -74,10 +41,28 @@ const Navbar = () => {
   const [categories, setCategories] = useState([]);
   const [hoveredCategory, setHoveredCategory] = useState(null);
   const [mobileDrawer, setMobileDrawer] = useState(false);
+  const [unreadChats, setUnreadChats] = useState(0);
 
   useEffect(() => {
     fetchCategories();
   }, []);
+
+  // Fetch unread chat count for admin
+  useEffect(() => {
+    if (!isAdmin) return;
+    
+    const fetchUnread = async () => {
+      try {
+        const res = await api.get('/chat/admin/sessions');
+        const unread = (res.data || []).reduce((sum, c) => sum + (c.unread || 0), 0);
+        setUnreadChats(unread);
+      } catch(e) {}
+    };
+    
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 15000);
+    return () => clearInterval(interval);
+  }, [isAdmin]);
 
   const fetchCategories = async () => {
     try {
@@ -103,7 +88,6 @@ const Navbar = () => {
         <Container maxWidth="xl">
           <Toolbar disableGutters sx={{ gap: { xs: 0.5, md: 1 } }}>
             
-            {/* Mobile Menu Button */}
             {isMobile && (
               <IconButton onClick={() => setMobileDrawer(true)} sx={{ color: 'white' }}>
                 <MenuIcon />
@@ -116,11 +100,8 @@ const Navbar = () => {
               component={RouterLink}
               to="/"
               sx={{
-                textDecoration: 'none',
-                color: 'white',
-                fontWeight: 800,
-                mr: { xs: 1, md: 3 },
-                letterSpacing: -0.5,
+                textDecoration: 'none', color: 'white', fontWeight: 800,
+                mr: { xs: 1, md: 3 }, letterSpacing: -0.5,
                 fontSize: { xs: '1.2rem', sm: '1.5rem' },
                 '&:hover': { opacity: 0.9 },
               }}
@@ -131,31 +112,32 @@ const Navbar = () => {
             {/* Desktop Navigation */}
             {!isMobile && (
               <>
-                <Button
-                  onClick={(e) => setCategoryMenu(e.currentTarget)}
-                  endIcon={<KeyboardArrowDown />}
-                  sx={{ color: 'white', fontWeight: 600, textTransform: 'none', px: 2, py: 1, borderRadius: 2, '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}
-                >
+                <Button onClick={(e) => setCategoryMenu(e.currentTarget)} endIcon={<KeyboardArrowDown />}
+                  sx={{ color: 'white', fontWeight: 600, textTransform: 'none', px: 2, py: 1, borderRadius: 2, '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}>
                   Categories
                 </Button>
-
                 <Button component={RouterLink} to="/products" sx={{ color: 'white', textTransform: 'none', fontWeight: 500, '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}>
                   All Products
                 </Button>
-                
                 <Button component={RouterLink} to="/products?sort=price_asc" sx={{ color: '#f59e0b', textTransform: 'none', fontWeight: 500, '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}>
-                  <LocalOffer sx={{ mr: 0.5, fontSize: 18 }} />
-                  Deals
+                  <LocalOffer sx={{ mr: 0.5, fontSize: 18 }} />Deals
                 </Button>
-
                 <Button component={RouterLink} to="/contact" sx={{ color: 'white', textTransform: 'none', fontWeight: 500, '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}>
-                  <Mail sx={{ mr: 0.5, fontSize: 18 }} />
-                  Contact
+                  <Mail sx={{ mr: 0.5, fontSize: 18 }} />Contact
                 </Button>
               </>
             )}
 
             <Box sx={{ flexGrow: 1 }} />
+
+            {/* Admin Chat Icon with Badge */}
+            {isAdmin && (
+              <IconButton component={RouterLink} to="/admin/chat" sx={{ color: 'white', '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}>
+                <Badge badgeContent={unreadChats} color="error" max={99}>
+                  <Chat />
+                </Badge>
+              </IconButton>
+            )}
 
             {/* Cart */}
             <IconButton color="inherit" component={RouterLink} to="/cart" sx={{ color: 'white', '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}>
@@ -164,19 +146,16 @@ const Navbar = () => {
               </Badge>
             </IconButton>
 
-            {/* User Menu */}
+            {/* 🔴 FIX: Only ONE user menu button */}
             {user ? (
               <>
                 <Button
                   onClick={(e) => setUserMenu(e.currentTarget)}
                   endIcon={<KeyboardArrowDown />}
                   sx={{
-                    color: 'white',
-                    textTransform: 'none',
-                    fontWeight: 500,
+                    color: 'white', textTransform: 'none', fontWeight: 500,
                     ml: { xs: 0, md: 1 },
                     '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
-                    display: { xs: 'none', sm: 'flex' },
                   }}
                 >
                   <Avatar 
@@ -185,15 +164,9 @@ const Navbar = () => {
                   >
                     {!user.avatar_url && (user.full_name?.charAt(0)?.toUpperCase() || 'U')}
                   </Avatar>
-                  {user.full_name?.split(' ')[0]}
+                  {!isMobile && user.full_name?.split(' ')[0]}
                 </Button>
-                {isMobile && (
-                  <IconButton onClick={(e) => setUserMenu(e.currentTarget)} sx={{ color: 'white' }}>
-                    <Avatar src={user.avatar_url || ''} sx={{ width: 28, height: 28, bgcolor: user.avatar_url ? 'transparent' : '#2563eb', fontSize: '0.8rem', fontWeight: 700 }}>
-                      {!user.avatar_url && (user.full_name?.charAt(0)?.toUpperCase() || 'U')}
-                    </Avatar>
-                  </IconButton>
-                )}
+
                 <Menu
                   anchorEl={userMenu}
                   open={Boolean(userMenu)}
@@ -202,14 +175,10 @@ const Navbar = () => {
                   transformOrigin={{ horizontal: 'right', vertical: 'top' }}
                   anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
                 >
-                  {/* User Info Header */}
                   <Box sx={{ px: 2, py: 2, borderBottom: '1px solid #e2e8f0' }}>
                     <Stack direction="row" spacing={1.5} alignItems="center">
-                      <Avatar 
-                        src={user.avatar_url || ''} 
-                        sx={{ bgcolor: user.avatar_url ? 'transparent' : '#2563eb', fontWeight: 700, width: 40, height: 40 }}
-                      >
-                        {!user.avatar_url && (user.full_name?.charAt(0)?.toUpperCase())}
+                      <Avatar src={user.avatar_url || ''} sx={{ bgcolor: user.avatar_url ? 'transparent' : '#2563eb', fontWeight: 700, width: 40, height: 40 }}>
+                        {!user.avatar_url && user.full_name?.charAt(0)?.toUpperCase()}
                       </Avatar>
                       <Box>
                         <Typography variant="subtitle2" fontWeight={600}>{user.full_name}</Typography>
@@ -219,7 +188,6 @@ const Navbar = () => {
                     {isAdmin && <Chip label="Admin" size="small" color="primary" sx={{ mt: 1, height: 20, fontSize: '0.65rem' }} />}
                   </Box>
 
-                  {/* Menu Items */}
                   <Box sx={{ py: 1 }}>
                     <MenuItem onClick={() => { setUserMenu(null); navigate('/profile'); }}>
                       <ListItemIcon><Person fontSize="small" /></ListItemIcon>
@@ -231,17 +199,19 @@ const Navbar = () => {
                     </MenuItem>
                   </Box>
 
-                  {/* Admin Link */}
                   {isAdmin && (
                     <Box sx={{ borderTop: '1px solid #e2e8f0', py: 1 }}>
                       <MenuItem onClick={() => { setUserMenu(null); navigate('/admin'); }}>
                         <ListItemIcon><Dashboard fontSize="small" sx={{ color: '#2563eb' }} /></ListItemIcon>
                         <ListItemText primary="Admin Dashboard" primaryTypographyProps={{ fontWeight: 600, color: '#2563eb' }} />
                       </MenuItem>
+                      <MenuItem onClick={() => { setUserMenu(null); navigate('/admin/chat'); }}>
+                        <ListItemIcon><Chat fontSize="small" sx={{ color: '#0891b2' }} /></ListItemIcon>
+                        <ListItemText primary="Live Chat" />
+                      </MenuItem>
                     </Box>
                   )}
 
-                  {/* Logout */}
                   <Box sx={{ borderTop: '1px solid #e2e8f0', py: 1 }}>
                     <MenuItem onClick={() => { logout(); setUserMenu(null); navigate('/'); }}>
                       <ListItemIcon><Logout fontSize="small" sx={{ color: '#ef4444' }} /></ListItemIcon>
@@ -267,8 +237,7 @@ const Navbar = () => {
       {/* Category Mega Menu */}
       <Menu anchorEl={categoryMenu} open={Boolean(categoryMenu)} onClose={() => { setCategoryMenu(null); setHoveredCategory(null); }}
         PaperProps={{ sx: { mt: 1, borderRadius: 2, minWidth: 650, boxShadow: '0 10px 40px rgba(0,0,0,0.2)' } }}
-        MenuListProps={{ sx: { p: 0 } }}
-      >
+        MenuListProps={{ sx: { p: 0 } }}>
         <Box sx={{ display: 'flex', p: 1 }}>
           <Box sx={{ width: 220, borderRight: '1px solid #e2e8f0' }}>
             <Typography variant="caption" sx={{ px: 2, py: 1, display: 'block', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>Departments</Typography>
@@ -313,12 +282,23 @@ const Navbar = () => {
             <IconButton onClick={() => setMobileDrawer(false)}><Close /></IconButton>
           </Stack>
           <Divider sx={{ mb: 2 }} />
-          
           <Typography variant="caption" color="text.secondary" fontWeight={600} textTransform="uppercase" mb={1} display="block">Menu</Typography>
           <Button fullWidth onClick={() => { setMobileDrawer(false); navigate('/products'); }} sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 0.5 }}>All Products</Button>
           <Button fullWidth onClick={() => { setMobileDrawer(false); navigate('/products?sort=price_asc'); }} sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 0.5, color: '#f59e0b' }}>Deals</Button>
           <Button fullWidth onClick={() => { setMobileDrawer(false); navigate('/contact'); }} sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 0.5 }}>Contact</Button>
-          
+          {isAdmin && (
+            <>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="caption" color="text.secondary" fontWeight={600} textTransform="uppercase" mb={1} display="block">Admin</Typography>
+              <Button fullWidth onClick={() => { setMobileDrawer(false); navigate('/admin'); }} sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 0.5 }}>Dashboard</Button>
+              <Button fullWidth onClick={() => { setMobileDrawer(false); navigate('/admin/chat'); }} sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 0.5 }}>
+                <Badge badgeContent={unreadChats} color="error" sx={{ mr: 1 }}>
+                  <Chat fontSize="small" />
+                </Badge>
+                Live Chat
+              </Button>
+            </>
+          )}
           <Divider sx={{ my: 2 }} />
           <Typography variant="caption" color="text.secondary" fontWeight={600} textTransform="uppercase" mb={1} display="block">Categories</Typography>
           {mainCategories.map(cat => (
@@ -327,7 +307,6 @@ const Navbar = () => {
               {cat.name}
             </Button>
           ))}
-          
           {!user && (
             <>
               <Divider sx={{ my: 2 }} />

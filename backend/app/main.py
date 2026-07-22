@@ -14,6 +14,8 @@ import asyncio
 
 from app.routers import contact
 from app.routers import payment
+from app.routers import chat_ws
+from app.routers import chat
 
 # Create upload directories
 os.makedirs("uploads/products", exist_ok=True)
@@ -99,3 +101,5 @@ app.include_router(admin.router, prefix="/api")
 app.include_router(telegram.router, prefix="/api")
 app.include_router(contact.router, prefix="/api")
 app.include_router(payment.router, prefix="/api")
+app.include_router(chat_ws.router)
+app.include_router(chat.router, prefix="/api")

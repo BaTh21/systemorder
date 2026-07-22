@@ -31,6 +31,7 @@ import {
   Refresh,
   Circle,
   Category,
+  Chat,
 } from '@mui/icons-material';
 import {
   BarChart,
@@ -86,6 +87,7 @@ const AdminDashboard = () => {
     { title: 'Products', value: stats.active_products || 0, subtitle: `⚠️ ${stats.low_stock || 0} low stock | 🚫 ${stats.out_of_stock || 0} out`, icon: <Inventory sx={{ fontSize: { xs: 24, sm: 40 } }} />, color: '#ed6c02', bgColor: '#fff3e0', link: '/admin/products' },
     { title: 'Customers', value: stats.total_customers || 0, subtitle: `+${stats.new_customers_today || 0} today`, icon: <People sx={{ fontSize: { xs: 24, sm: 40 } }} />, color: '#9c27b0', bgColor: '#f3e5f5', link: '/admin/customers' },
     { title: 'Categories', value: stats.total_categories || 0, subtitle: 'Manage categories', icon: <Category sx={{ fontSize: { xs: 24, sm: 40 } }} />, color: '#0891b2', bgColor: '#ecfeff', link: '/admin/categories' },
+    { title: 'Live Chat', value: 'Support', subtitle: 'Chat with customers', icon: <Chat sx={{ fontSize: { xs: 24, sm: 40 } }} />, color: '#6366f1', bgColor: '#eef2ff', link: '/admin/chat' },
   ];
 
   const formatStatus = (status) => {
@@ -124,7 +126,7 @@ const AdminDashboard = () => {
       {/* Stat Cards */}
       <Grid container spacing={{ xs: 1.5, sm: 2, md: 3 }} sx={{ mb: { xs: 2, md: 4 } }}>
         {statCards.map((stat) => (
-          <Grid item xs={6} sm={4} md={4} lg={2.4} key={stat.title}>
+          <Grid item xs={6} sm={4} md={4} lg={2} key={stat.title}>
             <Card component={RouterLink} to={stat.link}
               sx={{ textDecoration: 'none', height: '100%', transition: 'all 0.3s', bgcolor: stat.bgColor, '&:hover': { transform: 'translateY(-4px)', boxShadow: 6 } }}>
               <CardContent sx={{ p: { xs: 1.5, sm: 2, md: 3 } }}>
@@ -220,11 +222,7 @@ const AdminDashboard = () => {
               </TableHead>
               <TableBody>
                 {paginatedOrders.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} align="center">
-                      <Typography variant="body2" color="text.secondary" sx={{ py: 2, fontSize: { xs: '0.7rem', sm: '0.875rem' } }}>No orders yet</Typography>
-                    </TableCell>
-                  </TableRow>
+                  <TableRow><TableCell colSpan={5} align="center"><Typography variant="body2" color="text.secondary" sx={{ py: 2, fontSize: { xs: '0.7rem', sm: '0.875rem' } }}>No orders yet</Typography></TableCell></TableRow>
                 ) : (
                   paginatedOrders.map((order) => (
                     <TableRow key={order.id} hover>
@@ -252,20 +250,14 @@ const AdminDashboard = () => {
           {sortedRecentOrders.length > ordersPerPage && (
             <Stack direction="row" justifyContent="center" alignItems="center" spacing={1} mt={2}>
               <Button size="small" disabled={orderPage === 1} onClick={() => setOrderPage(orderPage - 1)}
-                sx={{ textTransform: 'none', minWidth: 50, fontSize: '0.75rem' }}>
-                ← Prev
-              </Button>
+                sx={{ textTransform: 'none', minWidth: 50, fontSize: '0.75rem' }}>← Prev</Button>
               {Array.from({ length: totalOrderPages }, (_, i) => i + 1).map((pageNum) => (
-                <Chip key={pageNum} label={pageNum} size="small"
-                  onClick={() => setOrderPage(pageNum)}
-                  color={orderPage === pageNum ? 'primary' : 'default'}
-                  variant={orderPage === pageNum ? 'filled' : 'outlined'}
+                <Chip key={pageNum} label={pageNum} size="small" onClick={() => setOrderPage(pageNum)}
+                  color={orderPage === pageNum ? 'primary' : 'default'} variant={orderPage === pageNum ? 'filled' : 'outlined'}
                   sx={{ cursor: 'pointer', minWidth: 28, height: 24, fontWeight: 600, fontSize: '0.7rem' }} />
               ))}
               <Button size="small" disabled={orderPage === totalOrderPages} onClick={() => setOrderPage(orderPage + 1)}
-                sx={{ textTransform: 'none', minWidth: 50, fontSize: '0.75rem' }}>
-                Next →
-              </Button>
+                sx={{ textTransform: 'none', minWidth: 50, fontSize: '0.75rem' }}>Next →</Button>
             </Stack>
           )}
         </CardContent>

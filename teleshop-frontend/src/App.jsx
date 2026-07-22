@@ -21,6 +21,8 @@ import AdminCustomers from './pages/admin/AdminCustomers';
 import ProfilePage from './pages/ProfilePage';
 import AdminCategories from './pages/admin/AdminCategories';
 import ContactPage from './pages/ContactPage';
+import ChatSupport from './components/chat/ChatSupport';
+import AdminChat from './pages/admin/AdminChat';
 
 
 const theme = createTheme({
@@ -39,6 +41,7 @@ function App() {
     <ThemeProvider theme={theme}>
       <Router>
         <AuthProvider>
+          <ChatSupport />
           <CartProvider>
             <Layout>
               <Routes>
@@ -86,6 +89,7 @@ function App() {
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route path="/admin/categories" element={<AdminCategories />} />
                 <Route path="/contact" element={<ContactPage />} />
+                <Route path="/admin/chat" element={<AdminChat />} />
               </Routes>
             </Layout>
           </CartProvider>
