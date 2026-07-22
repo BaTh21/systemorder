@@ -886,7 +886,7 @@ async def update_payment_info(
         upload_dir = Path(settings.UPLOAD_DIR) / "payments"
         upload_dir.mkdir(parents=True, exist_ok=True)
         
-        file_path = upload_dir / "qr-code.png"
+        file_path = upload_dir / "qr-code.jpg"
         with file_path.open("wb") as buffer:
             shutil.copyfileobj(qr_code.file, buffer)
     

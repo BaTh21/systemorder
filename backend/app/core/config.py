@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     BANK_ACCOUNT_NUMBER: str = "003039935"
     BANK_SWIFT_CODE: str = "ABAAKHPP"
     BANK_ROUTING_NUMBER: str = "021000021"
-    QR_CODE_URL: str = "/uploads/payments/qr-code.png"
+    QR_CODE_URL: str = "/uploads/payments/qr-code.jpg"
 
     class Config:
         env_file = ".env"

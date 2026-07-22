@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.models.order import Order
 from app.models.user import User
+from app.services.khqr_service import KHQRGenerator
 
 TELEGRAM_API = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}"
 
@@ -263,3 +264,52 @@ async def send_telegram_photo(chat_id: str, photo_path: str, caption: str = "ðŸ“
         except Exception as e:
             print(f"Error sending photo: {e}")
             return {"ok": False}
+        
+async def send_payment_request_to_customer(order_id: str):
+    """Send payment request with clear instructions (no QR)"""
+    from app.core.database import async_session as create_session
+    
+    async with create_session() as db:
+        try:
+            result = await db.execute(
+                select(Order)
+                .options(selectinload(Order.user))
+                .where(Order.id == int(order_id))
+            )
+            order = result.scalars().first()
+            
+            if not order or not order.user:
+                return
+            
+            user = order.user
+            
+            if not user.telegram_chat_id:
+                return
+            
+            amount = float(order.total) if order.total else 0
+            
+            # Send text message with clear instructions
+            message = KHQRGenerator.get_payment_text_for_telegram(amount, str(order.id))
+            await send_telegram_message(user.telegram_chat_id, message)
+            
+            # Also try to send QR code image separately
+            khqr_data = KHQRGenerator.generate_khqr_data(
+                bank_account="003039935",
+                bank_name="ABA Bank",
+                account_name="MOK KOLSAMBATH",
+                amount=amount,
+                order_id=str(order.id)
+            )
+            
+            qr_image = KHQRGenerator.generate_qr_base64(khqr_data)
+            
+            if qr_image:
+                # Send QR as photo
+                await send_telegram_photo(
+                    user.telegram_chat_id,
+                    qr_image,
+                    f"ðŸ“± Scan this QR with your ABA Mobile App to pay ${amount:.2f} for Order #{order.id}"
+                )
+            
+        except Exception as e:
+            print(f"Error sending payment request: {e}")

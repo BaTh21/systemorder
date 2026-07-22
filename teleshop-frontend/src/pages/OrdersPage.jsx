@@ -11,7 +11,16 @@ import {
   Chip,
   Box,
   CircularProgress,
+  Stack,
+  Paper,
+  Divider,
 } from '@mui/material';
+import {
+  ShoppingBag,
+  Receipt,
+  LocalShipping,
+  Payments,
+} from '@mui/icons-material';
 import api from '../api/axios';
 
 const statusColors = {
@@ -39,16 +48,12 @@ const OrdersPage = () => {
     setError(null);
     try {
       const response = await api.get('/orders');
-      console.log('Orders response:', response.data);
-      
-      // Handle both array and object responses
       let ordersData = [];
       if (Array.isArray(response.data)) {
         ordersData = response.data;
       } else if (response.data && Array.isArray(response.data.items)) {
         ordersData = response.data.items;
       }
-      
       setOrders(ordersData);
     } catch (error) {
       console.error('Error fetching orders:', error);
@@ -59,40 +64,20 @@ const OrdersPage = () => {
     }
   };
 
-  // Helper function to safely display order ID
-  const getOrderDisplayId = (orderId) => {
-    if (!orderId) return 'N/A';
-    // Convert to string first, then take first 8 characters
-    const idStr = String(orderId);
-    return idStr.length > 8 ? idStr.substring(0, 8) + '...' : idStr;
-  };
-
-  // Helper function to get status color
-  const getStatusColor = (status) => {
-    return statusColors[status] || 'default';
-  };
-
-  // Helper function to format status text
   const formatStatus = (status) => {
     if (!status) return 'Unknown';
     return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   };
 
-  // Helper function to format date
   const formatDate = (dateStr) => {
     if (!dateStr) return 'N/A';
     try {
       return new Date(dateStr).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
+        year: 'numeric', month: 'short', day: 'numeric',
       });
-    } catch {
-      return 'Invalid Date';
-    }
+    } catch { return 'Invalid Date'; }
   };
 
-  // Helper function to format price
   const formatPrice = (price) => {
     if (price === null || price === undefined) return '$0.00';
     return `$${Number(price).toFixed(2)}`;
@@ -108,125 +93,196 @@ const OrdersPage = () => {
 
   if (error) {
     return (
-      <Container sx={{ py: 4, textAlign: 'center' }}>
-        <Typography variant="h6" color="error" gutterBottom>
-          {error}
-        </Typography>
-        <Button variant="contained" onClick={fetchOrders}>
-          Try Again
-        </Button>
-      </Container>
+      <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh' }}>
+        <Container sx={{ py: 8, textAlign: 'center' }}>
+          <Receipt sx={{ fontSize: 60, color: '#cbd5e1', mb: 2 }} />
+          <Typography variant="h6" color="error" gutterBottom>{error}</Typography>
+          <Button variant="contained" onClick={fetchOrders} sx={{ borderRadius: 2, textTransform: 'none' }}>
+            Try Again
+          </Button>
+        </Container>
+      </Box>
     );
   }
 
   if (orders.length === 0) {
     return (
-      <Container sx={{ py: 8, textAlign: 'center' }}>
-        <Typography variant="h5" gutterBottom>
-          No orders yet
-        </Typography>
-        <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-          Start shopping and your orders will appear here
-        </Typography>
-        <Button 
-          variant="contained" 
-          component={RouterLink} 
-          to="/products"
-          size="large"
-        >
-          Start Shopping
-        </Button>
-      </Container>
+      <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh' }}>
+        <Container sx={{ py: 8, textAlign: 'center' }}>
+          <ShoppingBag sx={{ fontSize: 64, color: '#cbd5e1', mb: 2 }} />
+          <Typography variant="h5" fontWeight={700} color="#0f172a" gutterBottom>
+            No orders yet
+          </Typography>
+          <Typography variant="body1" color="#94a3b8" sx={{ mb: 3 }}>
+            Start shopping and your orders will appear here
+          </Typography>
+          <Button variant="contained" component={RouterLink} to="/products" size="large"
+            sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600, px: 4, py: 1.2 }}>
+            Start Shopping
+          </Button>
+        </Container>
+      </Box>
     );
   }
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Typography variant="h4" gutterBottom>
-        My Orders
-      </Typography>
-      
-      <Grid container spacing={3}>
-        {orders.map((order) => (
-          <Grid item xs={12} key={order.id}>
-            <Card sx={{ 
-              transition: 'box-shadow 0.3s',
-              '&:hover': { boxShadow: 4 } 
-            }}>
-              <CardContent>
-                <Grid container spacing={2} alignItems="center">
+    <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh', py: { xs: 2, sm: 4 } }}>
+      <Container maxWidth="lg">
+        
+        {/* Header */}
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h4" fontWeight={800} color="#0f172a" gutterBottom>
+            My Orders
+          </Typography>
+          <Typography variant="body2" color="#94a3b8">
+            {orders.length} order{orders.length !== 1 ? 's' : ''} total
+          </Typography>
+        </Box>
+
+        {/* Orders List */}
+        <Stack spacing={2}>
+          {orders.map((order) => (
+            <Paper
+              key={order.id}
+              elevation={0}
+              sx={{
+                p: { xs: 2, sm: 2.5 },
+                borderRadius: 3,
+                border: '1px solid #e2e8f0',
+                bgcolor: 'white',
+                transition: 'all 0.2s',
+                '&:hover': { boxShadow: '0 4px 12px rgba(0,0,0,0.08)' },
+              }}
+            >
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                justifyContent="space-between"
+                alignItems={{ xs: 'flex-start', sm: 'center' }}
+                spacing={2}
+              >
+                {/* Order Info */}
+                <Stack direction="row" spacing={3} alignItems="center" flexWrap="wrap" useFlexGap>
                   {/* Order ID */}
-                  <Grid item xs={12} sm={3}>
-                    <Typography variant="caption" color="text.secondary">
-                      Order ID
+                  <Box>
+                    <Typography variant="caption" color="#94a3b8">Order ID</Typography>
+                    <Typography variant="body2" fontWeight={700} fontFamily="monospace" color="#0f172a">
+                      #{String(order.id).padStart(6, '0')}
                     </Typography>
-                    <Typography variant="body2" fontFamily="monospace">
-                      #{getOrderDisplayId(order.id)}
-                    </Typography>
-                  </Grid>
-                  
+                  </Box>
+
+                  <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
+
                   {/* Date */}
-                  <Grid item xs={6} sm={2}>
-                    <Typography variant="caption" color="text.secondary">
-                      Date
-                    </Typography>
-                    <Typography variant="body2">
+                  <Box>
+                    <Typography variant="caption" color="#94a3b8">Date</Typography>
+                    <Typography variant="body2" fontWeight={500} color="#475569">
                       {formatDate(order.created_at)}
                     </Typography>
-                  </Grid>
-                  
-                  {/* Items Count */}
-                  <Grid item xs={6} sm={2}>
-                    <Typography variant="caption" color="text.secondary">
-                      Items
-                    </Typography>
-                    <Typography variant="body2">
+                  </Box>
+
+                  <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
+
+                  {/* Items */}
+                  <Box>
+                    <Typography variant="caption" color="#94a3b8">Items</Typography>
+                    <Typography variant="body2" fontWeight={500} color="#475569">
                       {order.items?.length || 0} item(s)
                     </Typography>
-                  </Grid>
-                  
+                  </Box>
+
+                  <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
+
                   {/* Total */}
-                  <Grid item xs={6} sm={2}>
-                    <Typography variant="caption" color="text.secondary">
-                      Total
-                    </Typography>
-                    <Typography variant="h6" color="primary" fontWeight="bold">
+                  <Box>
+                    <Typography variant="caption" color="#94a3b8">Total</Typography>
+                    <Typography variant="body2" fontWeight={700} color="#059669" fontSize="1rem">
                       {formatPrice(order.total)}
                     </Typography>
-                  </Grid>
-                  
-                  {/* Status */}
-                  <Grid item xs={6} sm={2}>
-                    <Typography variant="caption" color="text.secondary">
-                      Status
-                    </Typography>
-                    <Chip
-                      label={formatStatus(order.status)}
-                      color={getStatusColor(order.status)}
-                      size="small"
-                      sx={{ mt: 0.5 }}
-                    />
-                  </Grid>
-                  
-                  {/* Action */}
-                  <Grid item xs={12} sm={1}>
+                  </Box>
+                </Stack>
+
+                {/* Status & Actions */}
+                <Stack 
+                  direction={{ xs: 'column', sm: 'row' }} 
+                  spacing={1.5} 
+                  alignItems={{ xs: 'flex-start', sm: 'center' }}
+                  width={{ xs: '100%', sm: 'auto' }}
+                >
+                  <Chip
+                    label={formatStatus(order.status)}
+                    color={statusColors[order.status] || 'default'}
+                    size="small"
+                    sx={{ fontWeight: 600 }}
+                  />
+
+                  {/* Pay Now Button for Waiting Payment */}
+                  {order.status === 'waiting_payment' && (
                     <Button
-                      variant="outlined"
+                      variant="contained"
                       size="small"
                       component={RouterLink}
                       to={`/orders/${order.id}`}
-                      fullWidth
+                      startIcon={<Payments />}
+                      sx={{
+                        bgcolor: '#f59e0b',
+                        color: '#0f172a',
+                        fontWeight: 700,
+                        borderRadius: 2,
+                        textTransform: 'none',
+                        fontSize: '0.75rem',
+                        '&:hover': { bgcolor: '#eab308' },
+                      }}
                     >
-                      View
+                      Pay Now
                     </Button>
-                  </Grid>
-                </Grid>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
-    </Container>
+                  )}
+
+                  {/* Track Button for Shipping */}
+                  {order.status === 'shipping' && (
+                    <Button
+                      variant="contained"
+                      size="small"
+                      component={RouterLink}
+                      to={`/orders/${order.id}`}
+                      startIcon={<LocalShipping />}
+                      sx={{
+                        bgcolor: '#2563eb',
+                        color: 'white',
+                        fontWeight: 600,
+                        borderRadius: 2,
+                        textTransform: 'none',
+                        fontSize: '0.75rem',
+                        '&:hover': { bgcolor: '#1d4ed8' },
+                      }}
+                    >
+                      Track
+                    </Button>
+                  )}
+
+                  {/* View Button */}
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    component={RouterLink}
+                    to={`/orders/${order.id}`}
+                    sx={{
+                      borderRadius: 2,
+                      textTransform: 'none',
+                      fontSize: '0.75rem',
+                      borderColor: '#e2e8f0',
+                      color: '#475569',
+                      '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' },
+                    }}
+                  >
+                    View Details
+                  </Button>
+                </Stack>
+              </Stack>
+            </Paper>
+          ))}
+        </Stack>
+      </Container>
+    </Box>
   );
 };
 

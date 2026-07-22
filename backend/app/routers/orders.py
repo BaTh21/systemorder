@@ -19,7 +19,6 @@ async def place_order(
 ):
     """Place a new order"""
     try:
-        # Get request body
         body = await request.json()
         print(f"📦 Order request: {body}")
         
@@ -29,20 +28,20 @@ async def place_order(
         
         customer_notes = body.get("customer_notes", "")
         payment_method = body.get("payment_method", "bank_transfer")
+        shipping_fee = body.get("shipping_fee", 5.00)
         
-        # Create simple order data object
         class OrderData:
-            def __init__(self, shipping_address, customer_notes, payment_method):
+            def __init__(self, shipping_address, customer_notes, payment_method, shipping_fee):
                 self.shipping_address = shipping_address
                 self.customer_notes = customer_notes
                 self.payment_method = payment_method
+                self.shipping_fee = shipping_fee
         
-        order_data = OrderData(shipping_address, customer_notes, payment_method)
+        order_data = OrderData(shipping_address, customer_notes, payment_method, shipping_fee)
         
-        # Create order
         order = await create_order_from_cart(db, current_user, order_data, background_tasks)
         
-        # IMPORTANT: Fetch the order again with items eagerly loaded
+        # Fetch with items
         result = await db.execute(
             select(Order)
             .options(selectinload(Order.items))
@@ -50,7 +49,6 @@ async def place_order(
         )
         order_with_items = result.scalars().first()
         
-        # Build response without lazy loading
         items_list = []
         if order_with_items and order_with_items.items:
             for item in order_with_items.items:
@@ -64,7 +62,6 @@ async def place_order(
                     "total_price": float(item.total_price)
                 })
         
-        # Return response with all data
         return {
             "id": order.id,
             "user_id": order.user_id,

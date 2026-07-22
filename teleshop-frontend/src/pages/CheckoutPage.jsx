@@ -19,6 +19,10 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Select,
+  FormControl,
+  InputLabel,
+  MenuItem,
 } from '@mui/material';
 import {
   Person,
@@ -30,6 +34,7 @@ import {
   Payment,
   Shield,
   WarningAmber,
+  LocationOn,
 } from '@mui/icons-material';
 import { useCart } from '../contexts/CartContext';
 import api from '../api/axios';
@@ -44,10 +49,19 @@ const CheckoutPage = () => {
     full_name: '',
     address: '',
     phone: '',
+    location: 'phnom_penh',
   });
   const [notes, setNotes] = useState('');
   const [placing, setPlacing] = useState(false);
   const [alertDialog, setAlertDialog] = useState({ open: false, message: '' });
+
+  // Calculate shipping fee based on location
+  const getShippingFee = () => {
+    return shippingAddress.location === 'phnom_penh' ? 2.00 : 3.00;
+  };
+
+  const shippingFee = getShippingFee();
+  const grandTotal = totalPrice + shippingFee; // No service fee
 
   const handleAddressChange = (e) => {
     setShippingAddress({ ...shippingAddress, [e.target.name]: e.target.value });
@@ -61,9 +75,11 @@ const CheckoutPage = () => {
           full_name: shippingAddress.full_name,
           address_line1: shippingAddress.address,
           phone: shippingAddress.phone,
+          location: shippingAddress.location,
         },
         customer_notes: notes,
         payment_method: 'bank_transfer',
+        shipping_fee: shippingFee,
       };
       await api.post('/orders', orderData);
       await clearCart();
@@ -195,8 +211,40 @@ const CheckoutPage = () => {
                     }}
                     sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#fafafa', '& fieldset': { borderColor: '#e2e8f0' }, '&:hover fieldset': { borderColor: '#2563eb' } } }} />
                   
+                  {/* Location Selector */}
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Delivery Location</InputLabel>
+                    <Select
+                      name="location"
+                      value={shippingAddress.location}
+                      onChange={handleAddressChange}
+                      label="Delivery Location"
+                      startAdornment={
+                        <Box sx={{ mr: 1.5, display: 'flex', alignItems: 'center' }}>
+                          <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <LocationOn sx={{ color: '#22c55e', fontSize: 20 }} />
+                          </Box>
+                        </Box>
+                      }
+                      sx={{ borderRadius: 2, bgcolor: '#fafafa' }}
+                    >
+                      <MenuItem value="phnom_penh">
+                        <Stack direction="row" justifyContent="space-between" width="100%">
+                          <Typography variant="body2">🏙️ Phnom Penh</Typography>
+                          <Chip label="$2.00" size="small" color="primary" variant="outlined" sx={{ height: 22, fontSize: '0.7rem' }} />
+                        </Stack>
+                      </MenuItem>
+                      <MenuItem value="province">
+                        <Stack direction="row" justifyContent="space-between" width="100%">
+                          <Typography variant="body2">🏡 Province</Typography>
+                          <Chip label="$3.00" size="small" color="primary" variant="outlined" sx={{ height: 22, fontSize: '0.7rem' }} />
+                        </Stack>
+                      </MenuItem>
+                    </Select>
+                  </FormControl>
+
                   <TextField fullWidth label="Address" name="address" value={shippingAddress.address}
-                    onChange={handleAddressChange} required placeholder="Enter your Address"
+                    onChange={handleAddressChange} required placeholder="Street, City, State, Zip Code"
                     InputProps={{
                       startAdornment: (
                         <Box sx={{ mr: 1.5, display: 'flex', alignItems: 'center' }}>
@@ -237,6 +285,12 @@ const CheckoutPage = () => {
                       <Typography variant="body2" fontWeight={600}>{shippingAddress.full_name}</Typography>
                       <Typography variant="body2" color="#475569">{shippingAddress.address}</Typography>
                       <Typography variant="body2" color="#475569">{shippingAddress.phone}</Typography>
+                      <Chip 
+                        label={shippingAddress.location === 'phnom_penh' ? '🏙️ Phnom Penh' : '🏡 Province'} 
+                        size="small" 
+                        variant="outlined" 
+                        sx={{ mt: 0.5, width: 'fit-content' }}
+                      />
                     </Stack>
                   </Paper>
 
@@ -256,23 +310,24 @@ const CheckoutPage = () => {
                     ))}
                   </Stack>
 
+                  {/* Totals - No Service Fee */}
                   <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, borderColor: '#e2e8f0', bgcolor: '#f8fafc' }}>
                     <Stack spacing={1.5}>
-                      {[
-                        { label: 'Subtotal', value: `$${totalPrice.toFixed(2)}` },
-                        { label: 'Shipping', value: '$5.00' },
-                        { label: 'Service Fee (5%)', value: `$${(totalPrice * 0.05).toFixed(2)}` },
-                      ].map((row) => (
-                        <Stack key={row.label} direction="row" justifyContent="space-between">
-                          <Typography variant="body2" color="#64748b">{row.label}</Typography>
-                          <Typography variant="body2" fontWeight={500}>{row.value}</Typography>
-                        </Stack>
-                      ))}
+                      <Stack direction="row" justifyContent="space-between">
+                        <Typography variant="body2" color="#64748b">Subtotal</Typography>
+                        <Typography variant="body2" fontWeight={500}>${totalPrice.toFixed(2)}</Typography>
+                      </Stack>
+                      <Stack direction="row" justifyContent="space-between">
+                        <Typography variant="body2" color="#64748b">
+                          Shipping ({shippingAddress.location === 'phnom_penh' ? 'Phnom Penh' : 'Province'})
+                        </Typography>
+                        <Typography variant="body2" fontWeight={500}>${shippingFee.toFixed(2)}</Typography>
+                      </Stack>
                       <Divider />
                       <Stack direction="row" justifyContent="space-between">
                         <Typography fontWeight={800} color="#0f172a" fontSize="1.1rem">Total</Typography>
                         <Typography fontWeight={800} color="#059669" fontSize="1.2rem">
-                          ${(totalPrice + 5 + totalPrice * 0.05).toFixed(2)}
+                          ${grandTotal.toFixed(2)}
                         </Typography>
                       </Stack>
                     </Stack>
@@ -294,11 +349,11 @@ const CheckoutPage = () => {
                   <Typography variant="body2" color="#64748b" mb={3}>Your order will be processed immediately</Typography>
                   <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, borderColor: '#bbf7d0', bgcolor: '#f0fdf4', display: 'inline-block', mb: 2 }}>
                     <Typography variant="h3" fontWeight={800} color="#059669">
-                      ${(totalPrice + 5 + totalPrice * 0.05).toFixed(2)}
+                      ${grandTotal.toFixed(2)}
                     </Typography>
                   </Paper>
                   <Typography variant="caption" color="#94a3b8" display="block">
-                    Payment: Bank Transfer • {cartItems.length} item(s)
+                    Payment: Bank Transfer • {cartItems.length} item(s) • Shipping: ${shippingFee.toFixed(2)}
                   </Typography>
                 </Box>
               )}

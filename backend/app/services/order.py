@@ -28,7 +28,6 @@ async def create_order_from_cart(db: AsyncSession, user, order_data, background_
     order_items = []
     
     for item in cart_items:
-        # Load product
         product_result = await db.execute(
             select(Product).options(selectinload(Product.images))
             .where(Product.id == item.product_id)
@@ -36,21 +35,20 @@ async def create_order_from_cart(db: AsyncSession, user, order_data, background_
         product = product_result.scalars().first()
         
         if not product or not product.is_active:
-            raise HTTPException(400, f"Product '{item.product_name_snapshot}' is unavailable")
+            raise HTTPException(400, f"Product is unavailable")
         
-        # Check stock
         variant = None
         if item.variant_id:
             variant = await db.get(ProductVariant, item.variant_id)
             if variant and variant.stock < item.quantity:
-                raise HTTPException(400, f"Not enough stock for {product.name} ({variant.name}). Available: {variant.stock}")
+                raise HTTPException(400, f"Not enough stock for {product.name}")
             if variant:
-                variant.stock -= item.quantity 
+                variant.stock -= item.quantity
+        else:
             if product.stock < item.quantity:
-                raise HTTPException(400, f"Not enough stock for {product.name}. Available: {product.stock}")
-            product.stock -= item.quantity 
+                raise HTTPException(400, f"Not enough stock for {product.name}")
+            product.stock -= item.quantity
         
-        # Calculate price
         unit_price = product.base_price
         if variant:
             unit_price += variant.price_modifier
@@ -73,9 +71,12 @@ async def create_order_from_cart(db: AsyncSession, user, order_data, background_
         )
         order_items.append(order_item)
     
-    shipping_fee = Decimal("5.00")
-    service_fee = (subtotal * Decimal(str(settings.SERVICE_FEE_RATE))).quantize(Decimal("0.01"))
+    shipping_fee = Decimal(str(order_data.shipping_fee)) if hasattr(order_data, 'shipping_fee') and order_data.shipping_fee else Decimal("5.00")
+    service_fee = Decimal("0.00")
+    
     total = subtotal + shipping_fee + service_fee
+    
+    print(f"💰 Subtotal: {subtotal}, Shipping: {shipping_fee}, Service: {service_fee}, Total: {total}")
     
     # Create order
     order = Order(

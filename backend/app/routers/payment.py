@@ -83,23 +83,16 @@ async def get_khqr_info(
     
     amount = float(order.total) if order.total else 0
     
-    khqr_data = KHQRGenerator.generate_khqr_data(
-        bank_account=settings.BANK_ACCOUNT_NUMBER,
-        bank_name=settings.BANK_NAME,
-        account_name=settings.BANK_ACCOUNT_NAME,
-        amount=amount,
-        currency="USD",
-        order_id=str(order_id)
-    )
-    
-    qr_image = KHQRGenerator.generate_qr_base64(khqr_data)
+    # Use simple format that ABA can scan
+    qr_data = KHQRGenerator.get_simple_payment_qr(amount, str(order_id))
+    qr_image = KHQRGenerator.generate_qr_base64(qr_data)
     
     return {
         "order_id": order_id,
         "amount": amount,
-        "khqr_data": khqr_data,
+        "qr_data": qr_data,
         "qr_image": qr_image,
-        "bank_name": settings.BANK_NAME,
-        "bank_account": settings.BANK_ACCOUNT_NUMBER,
-        "account_name": settings.BANK_ACCOUNT_NAME,
+        "bank_name": "ABA Bank",
+        "bank_account": "003039935",
+        "account_name": "MOK KOLSAMBATH",
     }
