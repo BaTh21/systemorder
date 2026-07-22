@@ -17,3 +17,4 @@ class User(Base, TimestampMixin):
     role = Column(SQLEnum(UserRole), default=UserRole.customer)
     is_active = Column(Boolean, default=True)
     telegram_chat_id = Column(String, nullable=True)
+    avatar_url = Column(String, nullable=True)

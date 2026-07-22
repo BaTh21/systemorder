@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -153,6 +153,7 @@ async def get_current_user_info(
         "role": current_user.role,
         "is_active": current_user.is_active,
         "telegram_chat_id": current_user.telegram_chat_id,
+        "avatar_url": current_user.avatar_url,
         "created_at": str(current_user.created_at),
         "updated_at": str(current_user.updated_at)
     }
@@ -209,4 +210,51 @@ async def change_password(
     print(f"   ✅ Password changed successfully")
     
     return {"message": "Password changed successfully"}
+
+@router.post("/upload-avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Upload profile picture to Cloudinary"""
+    
+    if not file or not file.filename:
+        raise HTTPException(400, "No file uploaded")
+    
+    # Validate file type
+    allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+    if file.content_type not in allowed_types:
+        raise HTTPException(400, "Only JPG, PNG, GIF, and WebP images are allowed")
+    
+    # Validate file size (max 5MB)
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(400, "File size must be less than 5MB")
+    
+    # Upload to Cloudinary
+    try:
+        from app.services.cloudinary_service import upload_image
+        
+        # Reset file position
+        await file.seek(0)
+        
+        result = await upload_image(
+            file,
+            folder="avatars",
+            public_id=f"user_{current_user.id}"
+        )
+        
+        # Update user's avatar URL
+        current_user.avatar_url = result["url"]
+        await db.commit()
+        
+        return {
+            "message": "Profile picture uploaded",
+            "avatar_url": result["url"]
+        }
+        
+    except Exception as e:
+        print(f"Avatar upload error: {e}")
+        raise HTTPException(500, f"Upload failed: {str(e)}")
 

@@ -179,14 +179,19 @@ const Navbar = () => {
                     display: { xs: 'none', sm: 'flex' },
                   }}
                 >
-                  <Avatar sx={{ width: 28, height: 28, mr: 1, bgcolor: '#2563eb', fontSize: '0.8rem', fontWeight: 700 }}>
-                    {user.full_name?.charAt(0)?.toUpperCase() || 'U'}
+                  <Avatar 
+                    src={user.avatar_url || ''} 
+                    sx={{ width: 28, height: 28, mr: 1, bgcolor: user.avatar_url ? 'transparent' : '#2563eb', fontSize: '0.8rem', fontWeight: 700 }}
+                  >
+                    {!user.avatar_url && (user.full_name?.charAt(0)?.toUpperCase() || 'U')}
                   </Avatar>
                   {user.full_name?.split(' ')[0]}
                 </Button>
                 {isMobile && (
                   <IconButton onClick={(e) => setUserMenu(e.currentTarget)} sx={{ color: 'white' }}>
-                    <Person />
+                    <Avatar src={user.avatar_url || ''} sx={{ width: 28, height: 28, bgcolor: user.avatar_url ? 'transparent' : '#2563eb', fontSize: '0.8rem', fontWeight: 700 }}>
+                      {!user.avatar_url && (user.full_name?.charAt(0)?.toUpperCase() || 'U')}
+                    </Avatar>
                   </IconButton>
                 )}
                 <Menu
@@ -197,10 +202,14 @@ const Navbar = () => {
                   transformOrigin={{ horizontal: 'right', vertical: 'top' }}
                   anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
                 >
+                  {/* User Info Header */}
                   <Box sx={{ px: 2, py: 2, borderBottom: '1px solid #e2e8f0' }}>
                     <Stack direction="row" spacing={1.5} alignItems="center">
-                      <Avatar sx={{ bgcolor: '#2563eb', fontWeight: 700, width: 40, height: 40 }}>
-                        {user.full_name?.charAt(0)?.toUpperCase()}
+                      <Avatar 
+                        src={user.avatar_url || ''} 
+                        sx={{ bgcolor: user.avatar_url ? 'transparent' : '#2563eb', fontWeight: 700, width: 40, height: 40 }}
+                      >
+                        {!user.avatar_url && (user.full_name?.charAt(0)?.toUpperCase())}
                       </Avatar>
                       <Box>
                         <Typography variant="subtitle2" fontWeight={600}>{user.full_name}</Typography>
@@ -209,6 +218,8 @@ const Navbar = () => {
                     </Stack>
                     {isAdmin && <Chip label="Admin" size="small" color="primary" sx={{ mt: 1, height: 20, fontSize: '0.65rem' }} />}
                   </Box>
+
+                  {/* Menu Items */}
                   <Box sx={{ py: 1 }}>
                     <MenuItem onClick={() => { setUserMenu(null); navigate('/profile'); }}>
                       <ListItemIcon><Person fontSize="small" /></ListItemIcon>
@@ -219,6 +230,8 @@ const Navbar = () => {
                       <ListItemText primary="My Orders" />
                     </MenuItem>
                   </Box>
+
+                  {/* Admin Link */}
                   {isAdmin && (
                     <Box sx={{ borderTop: '1px solid #e2e8f0', py: 1 }}>
                       <MenuItem onClick={() => { setUserMenu(null); navigate('/admin'); }}>
@@ -227,6 +240,8 @@ const Navbar = () => {
                       </MenuItem>
                     </Box>
                   )}
+
+                  {/* Logout */}
                   <Box sx={{ borderTop: '1px solid #e2e8f0', py: 1 }}>
                     <MenuItem onClick={() => { logout(); setUserMenu(null); navigate('/'); }}>
                       <ListItemIcon><Logout fontSize="small" sx={{ color: '#ef4444' }} /></ListItemIcon>
@@ -249,26 +264,17 @@ const Navbar = () => {
         </Container>
       </AppBar>
 
-      {/* Category Mega Menu (Desktop) */}
-      <Menu
-        anchorEl={categoryMenu}
-        open={Boolean(categoryMenu)}
-        onClose={() => { setCategoryMenu(null); setHoveredCategory(null); }}
+      {/* Category Mega Menu */}
+      <Menu anchorEl={categoryMenu} open={Boolean(categoryMenu)} onClose={() => { setCategoryMenu(null); setHoveredCategory(null); }}
         PaperProps={{ sx: { mt: 1, borderRadius: 2, minWidth: 650, boxShadow: '0 10px 40px rgba(0,0,0,0.2)' } }}
         MenuListProps={{ sx: { p: 0 } }}
       >
         <Box sx={{ display: 'flex', p: 1 }}>
           <Box sx={{ width: 220, borderRight: '1px solid #e2e8f0' }}>
-            <Typography variant="caption" sx={{ px: 2, py: 1, display: 'block', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>
-              Departments
-            </Typography>
+            <Typography variant="caption" sx={{ px: 2, py: 1, display: 'block', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>Departments</Typography>
             {mainCategories.map((cat) => (
-              <MenuItem
-                key={cat.id}
-                onClick={() => handleCategoryClick(cat.id)}
-                onMouseEnter={() => setHoveredCategory(cat)}
-                sx={{ borderRadius: 1, mx: 0.5, mb: 0.5, bgcolor: hoveredCategory?.id === cat.id ? '#f1f5f9' : 'transparent', fontWeight: hoveredCategory?.id === cat.id ? 600 : 400 }}
-              >
+              <MenuItem key={cat.id} onClick={() => handleCategoryClick(cat.id)} onMouseEnter={() => setHoveredCategory(cat)}
+                sx={{ borderRadius: 1, mx: 0.5, mb: 0.5, bgcolor: hoveredCategory?.id === cat.id ? '#f1f5f9' : 'transparent', fontWeight: hoveredCategory?.id === cat.id ? 600 : 400 }}>
                 <ListItemIcon sx={{ minWidth: 36 }}>{categoryIcons[cat.slug] || <ShoppingBag fontSize="small" />}</ListItemIcon>
                 <ListItemText primary={cat.name} primaryTypographyProps={{ fontSize: '0.9rem' }} />
               </MenuItem>
@@ -288,9 +294,7 @@ const Navbar = () => {
                       sx={{ borderRadius: 2, cursor: 'pointer', borderColor: '#e2e8f0', '&:hover': { bgcolor: '#2563eb', color: 'white', borderColor: '#2563eb' } }} />
                   ))}
                 </Box>
-                <Button size="small" onClick={() => handleCategoryClick(hoveredCategory.id)} sx={{ mt: 2, textTransform: 'none', fontWeight: 600 }}>
-                  Shop All {hoveredCategory.name} →
-                </Button>
+                <Button size="small" onClick={() => handleCategoryClick(hoveredCategory.id)} sx={{ mt: 2, textTransform: 'none', fontWeight: 600 }}>Shop All {hoveredCategory.name} →</Button>
               </>
             ) : (
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8' }}>
