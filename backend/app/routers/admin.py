@@ -670,8 +670,7 @@ async def create_category(
 ):
     """Create a new category with Cloudinary image"""
     
-    print(f"\n📁 Creating category: {name}")
-    
+    # Validate name
     if not name or not name.strip():
         raise HTTPException(400, "Category name is required")
     
@@ -686,45 +685,38 @@ async def create_category(
         slug = f"{base_slug}-{counter}"
         counter += 1
     
-    # Upload category image to Cloudinary
+    # Upload image to Cloudinary if provided
     image_url = None
     if image and image.filename:
         try:
-            print(f"📤 Uploading category image to Cloudinary...")
-            print(f"   File: {image.filename}")
-            print(f"   Content type: {image.content_type}")
-            
             result = await upload_image(
-                image, 
+                image,
                 folder="categories",
                 public_id=slug
             )
             image_url = result["url"]
-            print(f"✅ Cloudinary URL: {image_url}")
-            
+            print(f"✅ Category image uploaded: {image_url}")
         except Exception as e:
-            print(f"❌ Cloudinary upload error: {str(e)}")
-            raise HTTPException(500, f"Failed to upload image to Cloudinary: {str(e)}")
-    else:
-        print(f"ℹ️ No image provided for category")
+            print(f"❌ Cloudinary error: {e}")
+            # Continue without image - don't fail the whole creation
     
-    if parent_id is not None:
+    # Validate parent if provided
+    if parent_id and parent_id > 0:
         parent = await db.get(Category, parent_id)
         if not parent:
             raise HTTPException(400, "Parent category not found")
     
+    # Create category
     category = Category(
         name=name.strip(),
         slug=slug,
-        image_url=image_url,  # Store Cloudinary URL
-        parent_id=parent_id
+        image_url=image_url,
+        parent_id=parent_id if parent_id and parent_id > 0 else None
     )
     
     db.add(category)
     await db.commit()
     await db.refresh(category)
-    
-    print(f"✅ Category created: ID={category.id}, Image={image_url}")
     
     return {
         "id": category.id,
@@ -732,7 +724,6 @@ async def create_category(
         "slug": category.slug,
         "image_url": category.image_url,
         "parent_id": category.parent_id,
-        "created_at": str(category.created_at),
         "message": "Category created successfully"
     }
 
