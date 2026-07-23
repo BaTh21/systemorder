@@ -20,7 +20,13 @@ import EmojiPicker, { EmojiStyle, Theme } from 'emoji-picker-react';
 
 const getWsUrl = () => {
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-  return apiUrl.replace('http', 'ws').replace('/api', '');
+  
+  // Check if we're in production (Render) or local development
+  if (apiUrl.includes('onrender.com')) {
+    return apiUrl.replace('https://', 'wss://').replace('/api', '');
+  } else {
+    return apiUrl.replace('http://', 'ws://').replace('/api', '');
+  }
 };
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '😡'];
