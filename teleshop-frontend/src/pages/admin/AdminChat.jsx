@@ -114,7 +114,9 @@ const AdminChat = () => {
           if (activeChatRef.current === sid && data.message_id) {
             setMessages(prev => {
               if (prev.find(m => m.id === data.message_id)) return prev;
-              return [...prev, {
+
+              // Parse message based on type
+              let messageData = {
                 id: data.message_id,
                 from: 'customer',
                 text: data.message,
@@ -127,7 +129,9 @@ const AdminChat = () => {
                 time: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 isEdited: false,
                 reaction: null
-              }];
+              };
+
+              return [...prev, messageData];
             });
 
             if (data.customer_profile) {
@@ -142,9 +146,15 @@ const AdminChat = () => {
 
             api.put(`/chat/read/${sid}`).catch(e => { });
           } else if (activeChatRef.current !== sid) {
+            // Show notification with proper label
+            let notificationText = data.message?.substring(0, 60) || '';
+            if (data.message_type === 'image') notificationText = '📷 Sent a photo';
+            else if (data.message_type === 'file') notificationText = '📎 Sent a file';
+            else if (data.message_type === 'voice') notificationText = '🎤 Sent a voice message';
+
             setNotification({
               open: true,
-              message: data.message?.substring(0, 60),
+              message: notificationText,
               customerName: data.sender_name || 'Customer',
               sessionId: sid
             });
@@ -204,11 +214,15 @@ const AdminChat = () => {
   const loadSessions = async () => {
     try {
       const res = await api.get('/chat/admin/sessions');
-      setCustomers((res.data || []).map(c => ({
-        ...c,
-        displayName: c.sender_name && c.sender_name !== 'Customer' ? c.sender_name : 'Customer',
-        unread: c.session_id === activeChatRef.current ? 0 : (c.unread || 0)
-      })));
+      setCustomers((res.data || []).map(c => {
+        let lastMsg = c.last_message || 'No messages';
+
+        return {
+          ...c,
+          displayName: c.sender_name && c.sender_name !== 'Customer' ? c.sender_name : 'Customer',
+          unread: c.session_id === activeChatRef.current ? 0 : (c.unread || 0)
+        };
+      }));
     } catch (e) {
       console.error('Failed to load sessions:', e);
     }
@@ -230,20 +244,21 @@ const AdminChat = () => {
       const res = await api.get(`/chat/messages/${sid}`);
       setMessages((res.data || []).map(m => {
         const msgType = m.message_type || 'text';
-        let imageUrl = null;
-        let fileData = null;
-        let voiceUrl = null;
-        let voiceDuration = 0;
+        let imageUrl = null, fileData = null, voiceUrl = null, voiceDuration = 0;
 
         if (msgType === 'image') {
-          imageUrl = m.message;
+          imageUrl = m.message; // The URL is stored in message field
         } else if (msgType === 'file') {
-          try { fileData = JSON.parse(m.message); } catch { fileData = { url: m.message, name: 'File', size: 0 }; }
+          try {
+            fileData = JSON.parse(m.message);
+          } catch {
+            fileData = { url: m.message, name: 'File', size: 0 };
+          }
         } else if (msgType === 'voice') {
           try {
-            const voiceData = JSON.parse(m.message);
-            voiceUrl = voiceData.url;
-            voiceDuration = voiceData.duration || 0;
+            const vd = JSON.parse(m.message);
+            voiceUrl = vd.url;
+            voiceDuration = vd.duration || 0;
           } catch {
             voiceUrl = m.message;
             voiceDuration = 0;
@@ -315,16 +330,10 @@ const AdminChat = () => {
   };
 
   const handleReaction = async (msgId, emoji) => {
-    console.log('🎯 Reaction clicked - Message:', msgId, 'Emoji:', emoji);
+    console.log('🎯 Admin reacting - Message:', msgId, 'Emoji:', emoji);
 
-    // Find current message to check existing reaction
     const currentMsg = messages.find(m => m.id === msgId);
-    const currentReaction = currentMsg?.reaction;
-
-    // Determine new reaction (toggle)
-    const newReaction = currentReaction === emoji ? null : emoji;
-
-    console.log('🔄 Current reaction:', currentReaction, '→ New reaction:', newReaction);
+    const newReaction = currentMsg?.reaction === emoji ? null : emoji;
 
     // Update local state immediately
     setMessages(prev => prev.map(m =>
@@ -333,26 +342,21 @@ const AdminChat = () => {
 
     setEmojiPickerId(null);
 
-    // Send via WebSocket
+    // Send via WebSocket with activeChat
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'message_reaction',
         message_id: msgId,
-        session_id: sessionId, // For customer
-        // activeChat for admin - make sure to use the right variable
-        reaction: newReaction, // Send null if removing
-        sender_name: customerName || 'Admin' // Adjust based on who's sending
+        session_id: activeChat,  // This is the customer's session ID
+        reaction: newReaction
       }));
+      console.log('📤 Admin sent reaction via WS:', { msgId, session_id: activeChat, reaction: newReaction });
     } else {
       // Fallback to REST API
       try {
         await api.post(`/chat/messages/${msgId}/reaction`, { reaction: emoji });
       } catch (e) {
         console.error('Reaction failed:', e);
-        // Revert on failure
-        setMessages(prev => prev.map(m =>
-          m.id === msgId ? { ...m, reaction: currentReaction } : m
-        ));
       }
     }
   };
@@ -660,20 +664,10 @@ const AdminChat = () => {
                       <Typography fontWeight={activeChat === c.session_id ? 700 : 500} fontSize={{ xs: '0.8rem', sm: '0.9rem' }} color="#050505" noWrap sx={{ maxWidth: 150 }}>
                         {c.displayName}
                       </Typography>
-                      {c.user_id ? (
-                        <Chip label="Registered" size="small" sx={{ height: 18, fontSize: '0.55rem', bgcolor: '#e8f5e9', color: '#2e7d32', fontWeight: 500 }} />
-                      ) : (
-                        <Chip label="Guest" size="small" sx={{ height: 18, fontSize: '0.55rem', bgcolor: '#f1f5f9', color: '#64748b', fontWeight: 500 }} />
-                      )}
                     </Stack>
                   }
                   secondary={
                     <Box>
-                      {c.sender_email && (
-                        <Typography variant="caption" color="#65676b" sx={{ display: 'block', fontSize: '0.65rem' }} noWrap>
-                          <Email sx={{ fontSize: 10, mr: 0.3, verticalAlign: 'middle' }} />{c.sender_email}
-                        </Typography>
-                      )}
                       <Typography variant="caption" color="#65676b" noWrap sx={{ display: 'block', fontSize: '0.7rem' }}>
                         {c.last_message?.substring(0, 40) || 'No messages'}
                       </Typography>
@@ -702,28 +696,9 @@ const AdminChat = () => {
                 </Avatar>
 
                 <Box>
-                  <Stack direction="row" spacing={0.5} alignItems="center">
-                    <Typography variant="subtitle2" fontWeight={600} color="#050505" fontSize={{ xs: '0.85rem', sm: '0.95rem' }} noWrap sx={{ maxWidth: { xs: 150, sm: 250 } }}>
-                      {displayName}
-                    </Typography>
-                    {isRegistered ? (
-                      <Chip label="Registered" size="small" sx={{ height: 18, fontSize: '0.55rem', bgcolor: '#e8f5e9', color: '#2e7d32', fontWeight: 500 }} />
-                    ) : (
-                      <Chip label="Guest" size="small" sx={{ height: 18, fontSize: '0.55rem', bgcolor: '#f1f5f9', color: '#64748b', fontWeight: 500 }} />
-                    )}
-                  </Stack>
-                  {displayEmail && (
-                    <Typography variant="caption" color="#65676b" display="block" noWrap>
-                      <Email sx={{ fontSize: 12, mr: 0.5, verticalAlign: 'middle' }} />
-                      {displayEmail}
-                    </Typography>
-                  )}
-                  {customerProfile?.phone && (
-                    <Typography variant="caption" color="#65676b" display="block" noWrap>
-                      <PhoneAndroid sx={{ fontSize: 12, mr: 0.5, verticalAlign: 'middle' }} />
-                      {customerProfile.phone}
-                    </Typography>
-                  )}
+                  <Typography variant="subtitle2" fontWeight={600} color="#050505" fontSize={{ xs: '0.85rem', sm: '0.95rem' }} noWrap sx={{ maxWidth: { xs: 150, sm: 250 } }}>
+                    {displayName}
+                  </Typography>
                 </Box>
               </Stack>
 

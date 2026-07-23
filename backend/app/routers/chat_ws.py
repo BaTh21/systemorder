@@ -284,24 +284,25 @@ async def ws_admin(websocket: WebSocket, token: str):
                             chat_msg = result.scalars().first()
                             if chat_msg:
                                 new_reaction = msg.get("reaction")
-                                # If reaction is None or null, remove it
                                 if new_reaction is None or new_reaction == "null":
                                     chat_msg.reaction = None
                                 else:
                                     chat_msg.reaction = new_reaction
                                 await db.commit()
+                                print(f"✅ Reaction saved in DB: {chat_msg.reaction}")
                     except Exception as e:
                         print(f"❌ Error saving reaction: {e}")
                         traceback.print_exc()
                     
-                    # Forward to customer with the new reaction value
+                    # Forward to customer - USE session_id from message
                     await manager.reply_to_customer(session_id, {
                         "type": "message_reaction",
                         "message_id": msg.get("message_id"),
                         "session_id": session_id,
-                        "reaction": msg.get("reaction"),  # Can be None to remove
+                        "reaction": msg.get("reaction"),
                         "reacted_by": "Admin"
                     })
+                    print(f"📤 Sent reaction to customer session: {session_id}")
                 
                 # Handle edit and delete from admin
                 elif msg_type == "message_edited":

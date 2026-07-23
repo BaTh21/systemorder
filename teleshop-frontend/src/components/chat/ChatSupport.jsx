@@ -263,40 +263,19 @@ const ChatSupport = () => {
 
   const send = async () => {
     if (!input.trim()) return;
-    const txt = input;
+    const txt = input; 
     setInput('');
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        message: txt,
-        sender_name: customerName,
-        sender_email: customerEmail,
-        session_id: sessionId,
-        type: 'text',
-        timestamp: time
+      wsRef.current.send(JSON.stringify({ 
+        message: txt, 
+        sender_name: customerName, 
+        sender_email: customerEmail, 
+        session_id: sessionId, 
+        type: 'text', 
+        timestamp: time 
       }));
-    } else {
-      // Fallback to REST API
-      try {
-        const res = await api.post('/chat/send', {
-          message: txt,
-          sender_name: customerName,
-          sender_email: customerEmail,
-          session_id: sessionId
-        });
-        setMessages(prev => [...prev, {
-          id: res.data.id,
-          from: 'user',
-          text: txt,
-          type: 'text',
-          time,
-          isEdited: false,
-          reaction: null
-        }]);
-      } catch (e) {
-        console.error('Send failed:', e);
-      }
     }
   };
 
@@ -400,54 +379,70 @@ const ChatSupport = () => {
 
   // ===== UPLOAD HANDLERS =====
   const handleImageUpload = async (e) => {
-    const file = e.target.files?.[0];
+    const file = e.target.files?.[0]; 
     if (!file) return;
-    setUploading(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('session_id', sessionId);
+    setUploading(true); 
+    const formData = new FormData(); 
+    formData.append('file', file); 
+    formData.append('session_id', sessionId); 
     formData.append('is_admin', 'false');
-
-    const tempId = 'temp_' + Date.now();
-    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    setMessages(prev => [...prev, { id: tempId, from: 'user', type: 'image', imageUrl: URL.createObjectURL(file), time }]);
-
+    
     try {
-      const res = await api.post('/chat/upload/image', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
-
-      setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: res.data.id, imageUrl: res.data.url } : m));
-
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'image', image_url: res.data.url, sender_name: customerName, sender_email: customerEmail, session_id: sessionId, timestamp: time }));
-      }
-    } catch (e) { console.error('Image upload failed:', e); }
-    finally { setUploading(false); if (imageInputRef.current) imageInputRef.current.value = ''; }
+      const res = await api.post('/chat/upload/image', formData, { 
+        headers: { 'Content-Type': 'multipart/form-data' } 
+      });
+      const time = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      
+      setMessages(prev => [...prev, { 
+        id: res.data.id, 
+        from: 'user', 
+        type: 'image', 
+        imageUrl: res.data.url, 
+        time 
+      }]);
+      
+    } catch(e) { 
+      console.error('Image upload failed:', e);
+    } finally { 
+      setUploading(false); 
+      if(imageInputRef.current) imageInputRef.current.value = ''; 
+    }
   };
 
   const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
+    const file = e.target.files?.[0]; 
     if (!file) return;
-    setUploading(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('session_id', sessionId);
+    setUploading(true); 
+    const formData = new FormData(); 
+    formData.append('file', file); 
+    formData.append('session_id', sessionId); 
     formData.append('is_admin', 'false');
-
-    const tempId = 'temp_' + Date.now();
-    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    setMessages(prev => [...prev, { id: tempId, from: 'user', type: 'file', fileData: { name: file.name, size: file.size, url: '' }, time }]);
-
+    
     try {
-      const res = await api.post('/chat/upload/file', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
-      const fi = { name: res.data.name || file.name, size: res.data.size || file.size, url: res.data.url };
-      setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: res.data.id, fileData: fi } : m));
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'file', file_data: fi, sender_name: customerName, sender_email: customerEmail, session_id: sessionId, timestamp: time }));
-      }
-    } catch (e) { console.error('File upload failed:', e); }
-    finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
+      const res = await api.post('/chat/upload/file', formData, { 
+        headers: { 'Content-Type': 'multipart/form-data' } 
+      });
+      const time = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      const fi = { 
+        name: res.data.name || file.name, 
+        size: res.data.size || file.size, 
+        url: res.data.url 
+      };
+      
+      setMessages(prev => [...prev, { 
+        id: res.data.id, 
+        from: 'user', 
+        type: 'file', 
+        fileData: fi, 
+        time 
+      }]);
+      
+    } catch(e) { 
+      console.error('File upload failed:', e);
+    } finally { 
+      setUploading(false); 
+      if(fileInputRef.current) fileInputRef.current.value = ''; 
+    }
   };
 
   const startRecording = async () => {
@@ -628,10 +623,35 @@ const ChatSupport = () => {
 
                       {m.type === 'image' && (
                         <Box sx={{ position: 'relative' }}>
-                          <Box sx={{ maxWidth: 200, borderRadius: '12px', overflow: 'hidden', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', '&:hover': { opacity: 0.95 } }} onClick={() => window.open(m.imageUrl, '_blank')}>
-                            <img src={m.imageUrl} alt="📷 Photo" style={{ width: '100%', display: 'block', maxHeight: 200, objectFit: 'cover' }} />
+                          <Box
+                            sx={{
+                              maxWidth: 250,
+                              borderRadius: '12px',
+                              overflow: 'hidden',
+                              cursor: 'pointer',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                              '&:hover': { opacity: 0.95 }
+                            }}
+                            onClick={() => window.open(m.imageUrl, '_blank')}
+                          >
+                            <img
+                              src={m.imageUrl}
+                              alt="Shared"
+                              style={{ width: '100%', display: 'block', maxHeight: 250, objectFit: 'cover' }}
+                            />
                           </Box>
-                          <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: m.from === 'user' ? 'white' : '#65676b', opacity: 0.8, fontSize: '0.7rem' }}>📷 Photo</Typography>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              display: 'block',
+                              mt: 0.5,
+                              color: '#65676b',
+                              opacity: 0.8,
+                              fontSize: '0.7rem'
+                            }}
+                          >
+                            📷 Photo
+                          </Typography>
                         </Box>
                       )}
 
@@ -776,29 +796,29 @@ const ChatSupport = () => {
     </Drawer>
 
     <Menu anchorEl={messageMenu} open={Boolean(messageMenu)} onClose={() => setMessageMenu(null)}>
-  {/* Edit only for text messages */}
-  {selectedMessage?.type === 'text' && (
-    <MenuItem onClick={() => { 
-      setEditingMessageId(selectedMessage?.id); 
-      setEditText(selectedMessage?.text || ''); 
-      setMessageMenu(null); 
-    }}>
-      <Edit sx={{ mr: 1, fontSize: 18 }} /> Edit
-    </MenuItem>
-  )}
-  {/* Delete for ALL message types */}
-  <MenuItem onClick={() => handleDeleteMessage(selectedMessage?.id)} sx={{ color: '#ef4444' }}>
-    <Delete sx={{ mr: 1, fontSize: 18 }} /> Delete
-  </MenuItem>
-  <MenuItem onClick={() => {
-    if (selectedMessage?.type === 'text') handleCopyText(selectedMessage?.text);
-    else if (selectedMessage?.type === 'image') handleCopyText(selectedMessage?.imageUrl);
-    else if (selectedMessage?.type === 'file' && selectedMessage?.fileData) handleCopyText(selectedMessage?.fileData.url);
-    else if (selectedMessage?.type === 'voice' && selectedMessage?.voiceUrl) handleCopyText(selectedMessage?.voiceUrl);
-  }}>
-    <ContentCopy sx={{ mr: 1, fontSize: 18 }} /> Copy
-  </MenuItem>
-</Menu>
+      {/* Edit only for text messages */}
+      {selectedMessage?.type === 'text' && (
+        <MenuItem onClick={() => {
+          setEditingMessageId(selectedMessage?.id);
+          setEditText(selectedMessage?.text || '');
+          setMessageMenu(null);
+        }}>
+          <Edit sx={{ mr: 1, fontSize: 18 }} /> Edit
+        </MenuItem>
+      )}
+      {/* Delete for ALL message types */}
+      <MenuItem onClick={() => handleDeleteMessage(selectedMessage?.id)} sx={{ color: '#ef4444' }}>
+        <Delete sx={{ mr: 1, fontSize: 18 }} /> Delete
+      </MenuItem>
+      <MenuItem onClick={() => {
+        if (selectedMessage?.type === 'text') handleCopyText(selectedMessage?.text);
+        else if (selectedMessage?.type === 'image') handleCopyText(selectedMessage?.imageUrl);
+        else if (selectedMessage?.type === 'file' && selectedMessage?.fileData) handleCopyText(selectedMessage?.fileData.url);
+        else if (selectedMessage?.type === 'voice' && selectedMessage?.voiceUrl) handleCopyText(selectedMessage?.voiceUrl);
+      }}>
+        <ContentCopy sx={{ mr: 1, fontSize: 18 }} /> Copy
+      </MenuItem>
+    </Menu>
   </>);
 };
 
