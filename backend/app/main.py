@@ -24,9 +24,18 @@ os.makedirs("uploads/payments", exist_ok=True)
 
 app = FastAPI(title="TeleShop API")
 
+# CORS - Use hardcoded list to avoid any config issues
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=[
+        "https://systemorder.vercel.app",
+        "https://www.systemorder.vercel.app",
+        "https://systemorder-git-main.vercel.app",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -41,13 +50,8 @@ async def root():
 def create_database_if_not_exists():
     """Create database if it doesn't exist"""
     try:
-        # Get the sync URL (without +asyncpg)
         sync_url = DATABASE_URL.replace("+asyncpg", "")
-        
-        # Extract database name
         db_name = sync_url.split("/")[-1].split("?")[0]
-        
-        # Connect to default 'postgres' database
         base_url = sync_url.rsplit("/", 1)[0] + "/postgres"
         
         sync_engine = create_engine(base_url)
@@ -67,7 +71,6 @@ def create_database_if_not_exists():
 
 @app.on_event("startup")
 async def startup_event():
-    # Try to create database
     create_database_if_not_exists()
     
     try:
