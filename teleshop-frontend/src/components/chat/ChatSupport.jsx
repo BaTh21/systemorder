@@ -453,36 +453,64 @@ const ChatSupport = () => {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream);
+      const mr = new MediaRecorder(stream); 
       const chunks = [];
-      mr.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      mr.ondataavailable = (e) => { if(e.data.size>0) chunks.push(e.data); };
       mr.onstop = async () => {
-        const blob = new Blob(chunks, { type: 'audio/webm' });
-        if (blob.size === 0) return;
-        const fd = new FormData();
-        fd.append('file', blob, `voice_${Date.now()}.webm`);
-        fd.append('session_id', sessionId);
-        fd.append('duration', String(recordingTime));
+        clearInterval(recordingTimerRef.current);
+        const finalDuration = recordingTime;
+        const blob = new Blob(chunks, { type: 'audio/webm' }); 
+        if(blob.size===0) {
+          setIsRecording(false);
+          setRecordingTime(0);
+          return;
+        }
+        const fd = new FormData(); 
+        fd.append('file', blob, `voice_${Date.now()}.webm`); 
+        fd.append('session_id', sessionId); 
+        fd.append('duration', String(finalDuration)); 
         fd.append('is_admin', 'false');
-
-        const tempId = 'temp_' + Date.now();
-        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        setMessages(prev => [...prev, { id: tempId, from: 'user', type: 'voice', voiceUrl: '', voiceDuration: recordingTime, time }]);
-
+        
         try {
-          const res = await api.post('/chat/upload/voice', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-          setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: res.data.id, voiceUrl: res.data.url } : m));
-          if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ type: 'voice', voice_url: res.data.url, voice_duration: recordingTime, sender_name: customerName, sender_email: customerEmail, session_id: sessionId, timestamp: time }));
-          }
-        } catch (e) { console.error('Voice upload failed:', e); }
-        stream.getTracks().forEach(t => t.stop());
+          const res = await api.post('/chat/upload/voice', fd, { 
+            headers: { 'Content-Type': 'multipart/form-data' } 
+          });
+          
+          const time = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+          
+          // ONLY add message from API response - don't send via WebSocket
+          // The backend will notify admin via WebSocket automatically
+          setMessages(prev => [...prev, { 
+            id: res.data.id, 
+            from: 'user', 
+            type: 'voice', 
+            voiceUrl: res.data.url, 
+            voiceDuration: res.data.duration || finalDuration, 
+            time 
+          }]);
+          
+        } catch(e) { 
+          console.error('Voice upload failed:', e);
+        }
+        
+        setIsRecording(false);
+        setRecordingTime(0);
+        stream.getTracks().forEach(t=>t.stop());
       };
-      mr.start(); mediaRecorderRef.current = mr; setIsRecording(true);
-      let s = 0; recordingTimerRef.current = setInterval(() => { s++; setRecordingTime(s); }, 1000);
-    } catch (e) { console.error('Recording failed:', e); alert('Please allow microphone access'); }
+      mr.start(); 
+      mediaRecorderRef.current = mr; 
+      setIsRecording(true);
+      setRecordingTime(0);
+      let s = 0; 
+      recordingTimerRef.current = setInterval(() => { 
+        s++; 
+        setRecordingTime(s); 
+      }, 1000);
+    } catch(e) { 
+      console.error('Recording failed:', e); 
+      alert('Please allow microphone access to send voice messages');
+    }
   };
-
   const stopRecording = () => {
     if (mediaRecorderRef.current) { mediaRecorderRef.current.stop(); clearInterval(recordingTimerRef.current); setIsRecording(false); setRecordingTime(0); }
   };
@@ -638,7 +666,6 @@ const ChatSupport = () => {
                     </Box>
                   ) : (
                     <>
-                      {/* Text message */}
                       {m.type === 'text' && (
                         <Typography variant="body2" sx={{ fontSize: '0.85rem' }}>
                           {m.text}
@@ -646,39 +673,114 @@ const ChatSupport = () => {
                         </Typography>
                       )}
 
-                      {/* Image message */}
                       {m.type === 'image' && (
-                        <Box sx={{ maxWidth: 200, borderRadius: 2, overflow: 'hidden', cursor: 'pointer', position: 'relative' }} onClick={() => window.open(m.imageUrl, '_blank')}>
-                          <img src={m.imageUrl} alt="Shared" style={{ width: '100%', display: 'block' }} />
+                        <Box sx={{ position: 'relative' }}>
+                          <Box sx={{ maxWidth: 200, borderRadius: '12px', overflow: 'hidden', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', '&:hover': { opacity: 0.95 } }} onClick={() => window.open(m.imageUrl, '_blank')}>
+                            <img src={m.imageUrl} alt="📷 Photo" style={{ width: '100%', display: 'block', maxHeight: 200, objectFit: 'cover' }} />
+                          </Box>
+                          <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: m.from === 'user' ? 'white' : '#65676b', opacity: 0.8, fontSize: '0.7rem' }}>📷 Photo</Typography>
                         </Box>
                       )}
 
-                      {/* File message */}
                       {m.type === 'file' && m.fileData && (
-                        <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer', bgcolor: 'white', borderRadius: 2 }} onClick={() => window.open(m.fileData.url, '_blank')}>
-                          <AttachFile sx={{ color: '#1877f2' }} />
-                          <Box>
-                            <Typography variant="body2" fontWeight={600} fontSize="0.8rem">{m.fileData.name}</Typography>
-                            <Typography variant="caption" color="#65676b">{Math.round(m.fileData.size / 1024)} KB</Typography>
+                        <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, cursor: 'pointer', bgcolor: 'white', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #e4e6eb', '&:hover': { bgcolor: '#f8fafc', borderColor: '#1877f2' }, transition: 'all 0.2s ease' }} onClick={() => window.open(m.fileData.url, '_blank')}>
+                          <Box sx={{ width: 44, height: 44, borderRadius: '10px', bgcolor: '#e8f0fe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <AttachFile sx={{ color: '#1877f2', fontSize: 22 }} />
+                          </Box>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography variant="body2" fontWeight={600} fontSize="0.8rem" noWrap sx={{ color: '#1a1a1a' }}>{m.fileData.name || '📎 File'}</Typography>
+                            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.3 }}>
+                              <Typography variant="caption" color="#65676b" fontSize="0.7rem">{m.fileData.size ? `${Math.round(m.fileData.size / 1024)} KB` : 'File'}</Typography>
+                              <Typography variant="caption" color="#65676b" fontSize="0.7rem">•</Typography>
+                              <Typography variant="caption" color="#1877f2" fontSize="0.7rem" fontWeight={500}>📥 Download</Typography>
+                            </Stack>
                           </Box>
                         </Paper>
                       )}
 
-                      {/* Voice message */}
+                      {/* Voice message - Messenger Style */}
                       {m.type === 'voice' && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1 }}>
-                          <IconButton size="small" onClick={() => playVoice(m.voiceUrl, i)}>
-                            {playingAudio === i ? <Pause sx={{ color: '#1877f2', fontSize: 20 }} /> : <PlayArrow sx={{ color: '#1877f2', fontSize: 20 }} />}
-                          </IconButton>
-                          <Box sx={{ width: 80, height: 4, bgcolor: '#e4e6eb', borderRadius: 2 }}>
-                            <Box sx={{ width: `${Math.min((m.voiceDuration || 1) * 5, 100)}%`, height: '100%', bgcolor: '#1877f2', borderRadius: 2 }} />
+                        <Stack
+                          direction="row"
+                          spacing={1.2}
+                          alignItems="center"
+                          sx={{
+                            px: 1.5,
+                            py: 1.2,
+                            borderRadius: '18px',
+                            bgcolor: (m.from === 'admin' || m.from === 'user') ? 'rgba(255,255,255,0.15)' : '#f0f2f5',
+                            backdropFilter: (m.from === 'admin' || m.from === 'user') ? 'blur(10px)' : 'none',
+                            border: (m.from === 'admin' || m.from === 'user') ? '1px solid rgba(255,255,255,0.2)' : '1px solid #e4e6eb',
+                            minWidth: 200,
+                            maxWidth: 280,
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                          }}
+                        >
+                          {/* Play/Pause Button */}
+                          <Box
+                            onClick={() => playVoice(m.voiceUrl, m.id)}
+                            sx={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: '50%',
+                              bgcolor: '#0084ff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              flexShrink: 0,
+                              boxShadow: '0 2px 6px rgba(0,132,255,0.3)',
+                              '&:hover': { bgcolor: '#0066cc', transform: 'scale(1.05)' },
+                              '&:active': { transform: 'scale(0.95)' },
+                              transition: 'all 0.15s ease'
+                            }}
+                          >
+                            {playingAudio === m.id ? (
+                              <Pause sx={{ fontSize: 16, color: 'white' }} />
+                            ) : (
+                              <PlayArrow sx={{ fontSize: 18, color: 'white', ml: 0.3 }} />
+                            )}
                           </Box>
-                          <Typography variant="caption" color="#65676b">{m.voiceDuration || 0}s</Typography>
-                        </Box>
+
+                          {/* Waveform Bars */}
+                          <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.25, height: 32 }}>
+                            {[12, 16, 10, 20, 14, 18, 24, 12, 16, 22, 14, 18, 20, 12, 16, 10, 22, 14, 18, 12].map((h, i) => (
+                              <Box
+                                key={i}
+                                sx={{
+                                  width: 2.5,
+                                  height: `${h}px`,
+                                  borderRadius: '3px',
+                                  bgcolor: playingAudio === m.id ? '#0084ff' : '#94a3b8',
+                                  opacity: playingAudio === m.id ? 1 : 0.5,
+                                  transition: 'all 0.2s ease'
+                                }}
+                              />
+                            ))}
+                          </Box>
+
+                          {/* Duration */}
+                          {m.voiceDuration > 0 && (
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                color: '#65676b',
+                                fontSize: '0.7rem',
+                                fontWeight: 600,
+                                minWidth: 30,
+                                textAlign: 'right',
+                                letterSpacing: '0.3px'
+                              }}
+                            >
+                              0:{String(m.voiceDuration).padStart(2, '0')}
+                            </Typography>
+                          )}
+                        </Stack>
                       )}
                     </>
                   )}
                 </Box>
+
 
                 {/* Reaction badge */}
                 {m.reaction && (

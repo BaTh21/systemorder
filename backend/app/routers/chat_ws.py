@@ -109,21 +109,20 @@ async def ws_customer(websocket: WebSocket, token: str):
                     traceback.print_exc()
             
             # Handle image, file, voice
-            elif msg_type in ["image", "file", "voice"]:
+            elif msg_type == "voice":
                 await manager.notify_admins({
                     "type": "customer_message",
                     "from_user_id": user_id,
                     "session_id": msg_session,
                     "sender_name": msg.get("sender_name", "Customer"),
                     "sender_email": msg.get("sender_email", ""),
-                    "message_type": msg_type,
-                    "image_url": msg.get("image_url"),
-                    "file_data": msg.get("file_data"),
+                    "message_type": "voice",
                     "voice_url": msg.get("voice_url"),
-                    "voice_duration": msg.get("voice_duration"),
+                    "voice_duration": msg.get("voice_duration", 0),  # Make sure duration is passed
                     "timestamp": msg.get("timestamp", ""),
                     "customer_profile": user_info
                 })
+
             
             # Handle REACTION from customer
             elif msg_type == "message_reaction":
@@ -267,7 +266,7 @@ async def ws_admin(websocket: WebSocket, token: str):
                         "image_url": msg.get("image_url"),
                         "file_data": msg.get("file_data"),
                         "voice_url": msg.get("voice_url"),
-                        "voice_duration": msg.get("voice_duration"),
+                        "voice_duration": msg.get("voice_duration", 0),
                         "admin_name": msg.get("admin_name", "Admin"),
                         "timestamp": msg.get("timestamp", ""),
                     })
