@@ -532,7 +532,7 @@ async def delete_message(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete a chat message - Uses real database ID"""
+    """Delete a chat message - Users can delete their own messages (text, image, file, voice)"""
     msg = await db.get(ChatMessage, message_id)
     if not msg:
         raise HTTPException(404, "Message not found")
@@ -540,9 +540,11 @@ async def delete_message(
     is_admin = current_user.role.value == "admin" if hasattr(current_user, 'role') and current_user.role else False
     
     if is_admin:
+        # Admin can only delete their own messages
         if not msg.is_admin_reply:
             raise HTTPException(403, "Cannot delete customer messages")
     else:
+        # Customer can only delete their own messages
         if msg.is_admin_reply:
             raise HTTPException(403, "Cannot delete admin messages")
         if msg.user_id and msg.user_id != current_user.id:
@@ -553,9 +555,10 @@ async def delete_message(
     await db.delete(msg)
     await db.commit()
     
+    # Send real-time notification
     delete_data = {
         "type": "message_deleted",
-        "message_id": message_id,  # Real database ID
+        "message_id": message_id,
         "session_id": session_id
     }
     

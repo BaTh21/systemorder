@@ -509,40 +509,40 @@ const AdminChat = () => {
         clearInterval(recordingTimerRef.current);
         const finalDuration = recordingTime;
         const blob = new Blob(chunks, { type: 'audio/webm' });
-        if (blob.size === 0) { 
-          setIsRecording(false); 
-          setRecordingTime(0); 
-          return; 
+        if (blob.size === 0) {
+          setIsRecording(false);
+          setRecordingTime(0);
+          return;
         }
         const formData = new FormData();
         formData.append('file', blob, `voice_${Date.now()}.webm`);
         formData.append('session_id', activeChat);
         formData.append('duration', String(finalDuration));
         formData.append('is_admin', 'true');
-        
+
         try {
-          const res = await api.post('/chat/upload/voice', formData, { 
-            headers: { 'Content-Type': 'multipart/form-data' } 
+          const res = await api.post('/chat/upload/voice', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
           });
-          
+
           const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          
+
           // ONLY add message from API response - don't send via WebSocket
           // The backend will notify customer via WebSocket automatically
-          setMessages(prev => [...prev, { 
-            id: res.data.id, 
-            from: 'admin', 
-            type: 'voice', 
-            voiceUrl: res.data.url, 
-            voiceDuration: res.data.duration || finalDuration, 
-            senderName: 'You', 
-            time 
+          setMessages(prev => [...prev, {
+            id: res.data.id,
+            from: 'admin',
+            type: 'voice',
+            voiceUrl: res.data.url,
+            voiceDuration: res.data.duration || finalDuration,
+            senderName: 'You',
+            time
           }]);
-          
-        } catch(e) { 
-          console.error('Voice upload error:', e); 
+
+        } catch (e) {
+          console.error('Voice upload error:', e);
         }
-        
+
         setIsRecording(false);
         setRecordingTime(0);
         stream.getTracks().forEach(track => track.stop());
@@ -552,13 +552,13 @@ const AdminChat = () => {
       setIsRecording(true);
       setRecordingTime(0);
       let seconds = 0;
-      recordingTimerRef.current = setInterval(() => { 
-        seconds++; 
-        setRecordingTime(seconds); 
+      recordingTimerRef.current = setInterval(() => {
+        seconds++;
+        setRecordingTime(seconds);
       }, 1000);
-    } catch(e) { 
-      console.error('Mic error:', e); 
-      alert('Please allow microphone access'); 
+    } catch (e) {
+      console.error('Mic error:', e);
+      alert('Please allow microphone access');
     }
   };
 
@@ -770,69 +770,27 @@ const AdminChat = () => {
 
                     <Box sx={{ maxWidth: { xs: '90%', sm: '70%', md: '60%' }, position: 'relative' }}>
 
-                      {/* MESSAGE ACTIONS - Show on hover */}
-                      <Box
-                        className="msg-actions"
-                        sx={{
-                          position: 'absolute',
-                          top: -36,
-                          right: m.from === 'admin' ? 0 : 'auto',
-                          left: m.from === 'customer' ? 0 : 'auto',
-                          opacity: 0,
-                          visibility: 'hidden',
-                          transition: 'opacity 0.2s ease, visibility 0.2s ease',
-                          bgcolor: 'white',
-                          borderRadius: '20px',
-                          boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
-                          px: 0.5,
-                          py: 0.3,
-                          display: 'flex',
-                          zIndex: 10,
-                          alignItems: 'center',
-                          border: '1px solid #e4e6eb'
-                        }}
-                      >
-                        {/* Quick reactions - Available for ALL message types */}
+                      {/* MESSAGE ACTIONS */}
+                      <Box className="msg-actions" sx={{ position: 'absolute', top: -36, right: m.from === 'admin' ? 0 : 'auto', left: m.from === 'customer' ? 0 : 'auto', opacity: 0, visibility: 'hidden', transition: 'opacity 0.2s ease, visibility 0.2s ease', bgcolor: 'white', borderRadius: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.15)', px: 0.5, py: 0.3, display: 'flex', zIndex: 10, alignItems: 'center', border: '1px solid #e4e6eb' }}>
+
                         {QUICK_REACTIONS.map(r => (
-                          <IconButton
-                            key={r}
-                            size="small"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleReaction(m.id, r);
-                            }}
-                            sx={{ p: 0.3, '&:hover': { transform: 'scale(1.4)', bgcolor: '#f0f2f5' }, transition: 'transform 0.15s ease' }}
-                          >
+                          <IconButton key={r} size="small" onClick={(e) => { e.stopPropagation(); handleReaction(m.id, r); }} sx={{ p: 0.3, '&:hover': { transform: 'scale(1.4)', bgcolor: '#f0f2f5' }, transition: 'transform 0.15s ease' }}>
                             <Typography sx={{ fontSize: '1rem' }}>{r}</Typography>
                           </IconButton>
                         ))}
 
-                        {/* More emoji picker */}
-                        <IconButton
-                          size="small"
-                          onClick={(e) => { e.stopPropagation(); setEmojiPickerId(emojiPickerId === m.id ? null : m.id); }}
-                          sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}
-                        >
+                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); setEmojiPickerId(emojiPickerId === m.id ? null : m.id); }} sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}>
                           <InsertEmoticon sx={{ fontSize: 16, color: '#65676b' }} />
                         </IconButton>
 
-                        {/* Edit/Delete for admin's own text messages only */}
-                        {m.from === 'admin' && m.type === 'text' && (
-                          <IconButton size="small" onClick={(e) => { e.stopPropagation(); setSelectedMessage(m); setMessageMenu(e.currentTarget); }}
-                            sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}>
+                        {/* Show edit/delete for ALL admin's own messages (text, image, file, voice) */}
+                        {m.from === 'admin' && (
+                          <IconButton size="small" onClick={(e) => { e.stopPropagation(); setSelectedMessage(m); setMessageMenu(e.currentTarget); }} sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}>
                             <MoreHoriz sx={{ fontSize: 16, color: '#65676b' }} />
                           </IconButton>
                         )}
 
-                        {/* Copy for all messages */}
-                        <IconButton size="small" onClick={(e) => {
-                          e.stopPropagation();
-                          if (m.type === 'text') handleCopyText(m.text);
-                          else if (m.type === 'image') handleCopyText(m.imageUrl);
-                          else if (m.type === 'file' && m.fileData) handleCopyText(m.fileData.url);
-                          else if (m.type === 'voice' && m.voiceUrl) handleCopyText(m.voiceUrl);
-                        }}
-                          sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}>
+                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); if (m.type === 'text') handleCopyText(m.text); else if (m.type === 'image') handleCopyText(m.imageUrl); else if (m.type === 'file' && m.fileData) handleCopyText(m.fileData.url); else if (m.type === 'voice' && m.voiceUrl) handleCopyText(m.voiceUrl); }} sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}>
                           <ContentCopy sx={{ fontSize: 14, color: '#65676b' }} />
                         </IconButton>
                       </Box>
@@ -1137,9 +1095,24 @@ const AdminChat = () => {
 
       {/* DIALOGS */}
       <Menu anchorEl={messageMenu} open={Boolean(messageMenu)} onClose={() => setMessageMenu(null)}>
-        {selectedMessage?.from === 'admin' && <MenuItem onClick={handleEditClick}><Edit sx={{ mr: 1, fontSize: 18 }} /> Edit</MenuItem>}
-        {selectedMessage?.from === 'admin' && <MenuItem onClick={handleDeleteClick} sx={{ color: '#ef4444' }}><Delete sx={{ mr: 1, fontSize: 18 }} /> Delete</MenuItem>}
-        <MenuItem onClick={() => handleCopyText(selectedMessage?.text)}><ContentCopy sx={{ mr: 1, fontSize: 18 }} /> Copy</MenuItem>
+        {/* Edit only for text messages */}
+        {selectedMessage?.type === 'text' && (
+          <MenuItem onClick={handleEditClick}>
+            <Edit sx={{ mr: 1, fontSize: 18 }} /> Edit
+          </MenuItem>
+        )}
+        {/* Delete for ALL message types */}
+        <MenuItem onClick={handleDeleteClick} sx={{ color: '#ef4444' }}>
+          <Delete sx={{ mr: 1, fontSize: 18 }} /> Delete
+        </MenuItem>
+        <MenuItem onClick={() => {
+          if (selectedMessage?.type === 'text') handleCopyText(selectedMessage?.text);
+          else if (selectedMessage?.type === 'image') handleCopyText(selectedMessage?.imageUrl);
+          else if (selectedMessage?.type === 'file' && selectedMessage?.fileData) handleCopyText(selectedMessage?.fileData.url);
+          else if (selectedMessage?.type === 'voice' && selectedMessage?.voiceUrl) handleCopyText(selectedMessage?.voiceUrl);
+        }}>
+          <ContentCopy sx={{ mr: 1, fontSize: 18 }} /> Copy
+        </MenuItem>
       </Menu>
       <Dialog open={editDialog.open} onClose={() => setEditDialog({ open: false, message: null })} maxWidth="sm" fullWidth>
         <DialogTitle>Edit Message</DialogTitle><DialogContent><TextField fullWidth multiline rows={3} value={editText} onChange={e => setEditText(e.target.value)} autoFocus sx={{ mt: 1 }} /></DialogContent>
