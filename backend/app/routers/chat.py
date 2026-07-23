@@ -40,8 +40,12 @@ async def send_message(
     current_user: Optional[User] = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Customer sends a message - Returns real database ID"""
-    session_id = data.session_id or str(uuid.uuid4())
+    """Customer sends a message"""
+    # Use user-specific session ID
+    if current_user:
+        session_id = f"user_{current_user.id}"
+    else:
+        session_id = data.session_id or f"guest_{uuid.uuid4()}"
     
     if current_user:
         sender_name = current_user.full_name or data.sender_name
@@ -63,13 +67,7 @@ async def send_message(
     await db.commit()
     await db.refresh(msg)
     
-    # Return the REAL database ID
-    return {
-        "message": "Message sent", 
-        "session_id": session_id, 
-        "id": msg.id,  # Real database ID
-        "sender_name": sender_name
-    }
+    return {"message": "Message sent", "session_id": session_id, "id": msg.id, "sender_name": sender_name}
 
 
 # ===== ADMIN REPLY =====
@@ -627,4 +625,42 @@ async def add_reaction(
         "message": "Reaction updated", 
         "id": msg.id, 
         "reaction": msg.reaction
+    }
+    
+@router.delete("/admin/session/{session_id}")
+async def delete_chat_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Admin: Delete entire chat session and all its messages"""
+    if current_user.role.value != "admin":
+        raise HTTPException(403, "Only admins can delete sessions")
+    
+    # Find all messages in this session
+    result = await db.execute(
+        select(ChatMessage).where(ChatMessage.session_id == session_id)
+    )
+    messages = result.scalars().all()
+    
+    if not messages:
+        raise HTTPException(404, "Session not found")
+    
+    # Delete all messages in the session
+    for msg in messages:
+        await db.delete(msg)
+    
+    await db.commit()
+    
+    # Notify customer if connected
+    await manager.reply_to_customer(session_id, {
+        "type": "session_deleted",
+        "session_id": session_id,
+        "message": "Chat session has been ended by admin"
+    })
+    
+    return {
+        "message": "Session deleted",
+        "session_id": session_id,
+        "messages_deleted": len(messages)
     }

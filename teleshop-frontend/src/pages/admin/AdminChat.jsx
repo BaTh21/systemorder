@@ -41,6 +41,7 @@ const AdminChat = () => {
   const [notification, setNotification] = useState({ open: false, message: '', customerName: '', sessionId: '' });
   const [totalUnread, setTotalUnread] = useState(0);
   const [customerProfile, setCustomerProfile] = useState(null);
+  const [deleteSessionConfirm, setDeleteSessionConfirm] = useState(null);
 
   const [messageMenu, setMessageMenu] = useState(null);
   const [selectedMessage, setSelectedMessage] = useState(null);
@@ -503,6 +504,30 @@ const AdminChat = () => {
     }
   };
 
+  const handleDeleteSession = (sessionId, customerName) => {
+    setDeleteSessionConfirm({ sessionId, customerName });
+  };
+
+  const confirmDeleteSession = async () => {
+    if (!deleteSessionConfirm) return;
+
+    try {
+      await api.delete(`/chat/admin/session/${deleteSessionConfirm.sessionId}`);
+
+      // Remove from customers list
+      setCustomers(prev => prev.filter(c => c.session_id !== deleteSessionConfirm.sessionId));
+
+      // If the deleted session was active, clear it
+      if (activeChat === deleteSessionConfirm.sessionId) {
+        setActiveChat(null);
+        setMessages([]);
+      }
+
+      setDeleteSessionConfirm(null);
+    } catch (e) {
+      console.error('Failed to delete session:', e);
+    }
+  };
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -648,8 +673,17 @@ const AdminChat = () => {
           ) : (
             filteredCustomers.map(c => (
               <ListItem
-                key={c.session_id} button selected={activeChat === c.session_id} onClick={() => handleSelectCustomer(c.session_id)}
-                sx={{ py: { xs: 1, sm: 1.2 }, px: { xs: 1.5, sm: 2 }, bgcolor: activeChat === c.session_id ? '#e7f3ff' : 'transparent', '&:hover': { bgcolor: '#f0f2f5' } }}
+                key={c.session_id}
+                button
+                selected={activeChat === c.session_id}
+                onClick={() => handleSelectCustomer(c.session_id)}
+                sx={{
+                  py: { xs: 1, sm: 1.2 },
+                  px: { xs: 1.5, sm: 2 },
+                  bgcolor: activeChat === c.session_id ? '#e7f3ff' : 'transparent',
+                  '&:hover': { bgcolor: '#f0f2f5' },
+                  '&:hover .delete-session-btn': { opacity: 1, visibility: 'visible' }
+                }}
               >
                 <ListItemAvatar sx={{ minWidth: { xs: 44, sm: 56 } }}>
                   <Badge badgeContent={c.unread} color="error" overlap="circular" sx={{ '& .MuiBadge-badge': { fontSize: '0.6rem', height: 16, minWidth: 16 } }}>
@@ -658,12 +692,14 @@ const AdminChat = () => {
                     </Avatar>
                   </Badge>
                 </ListItemAvatar>
+
                 <ListItemText
                   primary={
                     <Stack direction="row" spacing={0.5} alignItems="center">
                       <Typography fontWeight={activeChat === c.session_id ? 700 : 500} fontSize={{ xs: '0.8rem', sm: '0.9rem' }} color="#050505" noWrap sx={{ maxWidth: 150 }}>
                         {c.displayName}
                       </Typography>
+                      
                     </Stack>
                   }
                   secondary={
@@ -674,6 +710,25 @@ const AdminChat = () => {
                     </Box>
                   }
                 />
+
+                {/* Delete session button */}
+                <IconButton
+                  className="delete-session-btn"
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteSession(c.session_id, c.displayName);
+                  }}
+                  sx={{
+                    opacity: 0,
+                    visibility: 'hidden',
+                    transition: 'opacity 0.2s ease, visibility 0.2s ease',
+                    color: '#ef4444',
+                    '&:hover': { bgcolor: '#fee2e2' }
+                  }}
+                >
+                  <Delete sx={{ fontSize: 18 }} />
+                </IconButton>
               </ListItem>
             ))
           )}
@@ -702,9 +757,8 @@ const AdminChat = () => {
                 </Box>
               </Stack>
 
-              <IconButton size="small" onClick={() => { loadSessions(); loadCustomerProfile(activeChat); }}>
-                <Refresh sx={{ fontSize: { xs: 16, sm: 18 }, color: '#65676b' }} />
-              </IconButton>
+              <Stack direction="row" spacing={0.5}>
+              </Stack>
             </Stack>
           </Box>
 
@@ -1096,6 +1150,33 @@ const AdminChat = () => {
       <Dialog open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} maxWidth="xs" fullWidth>
         <DialogTitle>Delete Message?</DialogTitle><DialogContent><Typography>This will be permanently deleted.</Typography></DialogContent>
         <DialogActions><Button onClick={() => setDeleteConfirm(null)}>Cancel</Button><Button variant="contained" color="error" onClick={handleDeleteConfirm}>Delete</Button></DialogActions>
+      </Dialog>
+      <Dialog open={!!deleteSessionConfirm} onClose={() => setDeleteSessionConfirm(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Delete sx={{ color: '#ef4444' }} />
+          Delete Conversation?
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ mb: 1 }}>
+            Are you sure you want to delete the entire conversation with <strong>{deleteSessionConfirm?.customerName}</strong>?
+          </Typography>
+          <Typography variant="body2" color="#ef4444" sx={{ bgcolor: '#fef2f2', p: 1.5, borderRadius: 1 }}>
+            ⚠️ This will permanently delete all messages in this conversation. This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setDeleteSessionConfirm(null)} variant="outlined">
+            Cancel
+          </Button>
+          <Button
+            onClick={confirmDeleteSession}
+            variant="contained"
+            color="error"
+            startIcon={<Delete />}
+          >
+            Delete Conversation
+          </Button>
+        </DialogActions>
       </Dialog>
       <Snackbar open={notification.open} autoHideDuration={5000} onClose={() => setNotification({ ...notification, open: false })} anchorOrigin={{ vertical: 'top', horizontal: 'right' }} sx={{ mt: { xs: 0, sm: 8 } }}>
         <Alert severity="info" variant="filled" onClose={() => setNotification({ ...notification, open: false })} sx={{ borderRadius: 2, cursor: 'pointer' }} onClick={() => { if (notification.sessionId) handleSelectCustomer(notification.sessionId); setNotification({ ...notification, open: false }); }}>
