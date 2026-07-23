@@ -1,12 +1,12 @@
 # app/models/chat.py
-from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, Boolean, ForeignKey, BigInteger
 from sqlalchemy.orm import relationship
 from app.models.base import Base, TimestampMixin
 
 class ChatMessage(Base, TimestampMixin):
     __tablename__ = "chat_messages"
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     sender_name = Column(String(255), nullable=False)
     sender_email = Column(String(255), nullable=True)
