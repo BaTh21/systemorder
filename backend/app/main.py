@@ -24,18 +24,10 @@ os.makedirs("uploads/payments", exist_ok=True)
 
 app = FastAPI(title="TeleShop API")
 
-# CORS - Use hardcoded list to avoid any config issues
+# CORS - Allow ALL origins (temporary fix)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://systemorder.vercel.app",
-        "https://www.systemorder.vercel.app",
-        "https://systemorder-git-main.vercel.app",
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
