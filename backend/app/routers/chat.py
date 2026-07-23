@@ -576,9 +576,8 @@ async def add_reaction(
     db: AsyncSession = Depends(get_db)
 ):
     """Add or remove reaction from message"""
-    print(f"🔍 Looking for message ID: {message_id} (type: {type(message_id)})")
+    print(f"🔍 Reaction request - Message ID: {message_id}, Reaction: {data.reaction}")
     
-    # Try to find the message
     result = await db.execute(
         select(ChatMessage).where(ChatMessage.id == message_id)
     )
@@ -592,29 +591,34 @@ async def add_reaction(
     if msg.reaction == data.reaction:
         msg.reaction = None
         new_reaction = None
+        print(f"🔄 Removing reaction (was: {data.reaction})")
     else:
         msg.reaction = data.reaction
         new_reaction = data.reaction
+        print(f"🔄 Setting reaction: {data.reaction}")
     
     await db.commit()
     await db.refresh(msg)
     
-    print(f"✅ Reaction updated for message {msg.id}: {new_reaction}")
+    print(f"✅ Reaction saved - Message {msg.id}: {msg.reaction}")
     
     is_admin = current_user.role.value == "admin" if hasattr(current_user, 'role') and current_user.role else False
     
+    # Send to BOTH sides - include null if reaction was removed
     reaction_data = {
         "type": "message_reaction",
         "message_id": msg.id,
         "session_id": msg.session_id,
-        "reaction": new_reaction,
+        "reaction": new_reaction,  # None if removed
         "reacted_by": current_user.full_name or "User"
     }
     
     if is_admin:
         await manager.reply_to_customer(msg.session_id, reaction_data)
+        print(f"📤 Notified customer about reaction: {new_reaction}")
     else:
         await manager.notify_admins(reaction_data)
+        print(f"📤 Notified admins about reaction: {new_reaction}")
     
     return {
         "message": "Reaction updated", 

@@ -5,9 +5,9 @@ from app.core.security import decode_token
 from app.core.database import async_session
 from app.models.user import User
 from app.models.chat import ChatMessage
+from sqlalchemy import select
 import json
 import traceback
-from datetime import datetime
 
 router = APIRouter()
 
@@ -80,7 +80,7 @@ async def ws_customer(websocket: WebSocket, token: str):
                         
                         print(f"💾 Customer message saved - ID: {chat_msg.id}")
                         
-                        # Send confirmation BACK to the customer who sent it
+                        # Send confirmation BACK to the customer
                         await websocket.send_text(json.dumps({
                             "type": "message_sent",
                             "message_id": chat_msg.id,
@@ -108,59 +108,68 @@ async def ws_customer(websocket: WebSocket, token: str):
                     print(f"❌ Error saving customer message: {e}")
                     traceback.print_exc()
             
-            # Handle image messages
-            elif msg_type == "image":
+            # Handle image, file, voice
+            elif msg_type in ["image", "file", "voice"]:
                 await manager.notify_admins({
                     "type": "customer_message",
                     "from_user_id": user_id,
                     "session_id": msg_session,
                     "sender_name": msg.get("sender_name", "Customer"),
                     "sender_email": msg.get("sender_email", ""),
-                    "message_type": "image",
+                    "message_type": msg_type,
                     "image_url": msg.get("image_url"),
-                    "timestamp": msg.get("timestamp", ""),
-                    "customer_profile": user_info
-                })
-            
-            # Handle file messages
-            elif msg_type == "file":
-                await manager.notify_admins({
-                    "type": "customer_message",
-                    "from_user_id": user_id,
-                    "session_id": msg_session,
-                    "sender_name": msg.get("sender_name", "Customer"),
-                    "sender_email": msg.get("sender_email", ""),
-                    "message_type": "file",
                     "file_data": msg.get("file_data"),
-                    "timestamp": msg.get("timestamp", ""),
-                    "customer_profile": user_info
-                })
-            
-            # Handle voice messages
-            elif msg_type == "voice":
-                await manager.notify_admins({
-                    "type": "customer_message",
-                    "from_user_id": user_id,
-                    "session_id": msg_session,
-                    "sender_name": msg.get("sender_name", "Customer"),
-                    "sender_email": msg.get("sender_email", ""),
-                    "message_type": "voice",
                     "voice_url": msg.get("voice_url"),
                     "voice_duration": msg.get("voice_duration"),
                     "timestamp": msg.get("timestamp", ""),
                     "customer_profile": user_info
                 })
             
-            # Handle message_edited, message_deleted, message_reaction
-            elif msg_type in ["message_edited", "message_deleted", "message_reaction"]:
-                # Forward these to admins
+            # Handle REACTION from customer
+            elif msg_type == "message_reaction":
+                
+                # Update the database
+                try:
+                    async with async_session() as db:
+                        result = await db.execute(
+                            select(ChatMessage).where(ChatMessage.id == msg.get("message_id"))
+                        )
+                        chat_msg = result.scalars().first()
+                        if chat_msg:
+                            new_reaction = msg.get("reaction")
+                            # If reaction is None or null, remove it
+                            if new_reaction is None or new_reaction == "null":
+                                chat_msg.reaction = None
+                            else:
+                                chat_msg.reaction = new_reaction
+                            await db.commit()
+                except Exception as e:
+                    print(f"❌ Error saving reaction: {e}")
+                    traceback.print_exc()
+                
+                # Forward to admins with the new reaction value
                 await manager.notify_admins({
-                    "type": msg_type,
+                    "type": "message_reaction",
                     "message_id": msg.get("message_id"),
                     "session_id": msg_session,
-                    "new_message": msg.get("new_message"),
-                    "reaction": msg.get("reaction"),
+                    "reaction": msg.get("reaction"),  # Can be None to remove
                     "reacted_by": msg.get("sender_name", "Customer")
+                })
+            
+            # Handle edit and delete from customer
+            elif msg_type == "message_edited":
+                await manager.notify_admins({
+                    "type": "message_edited",
+                    "message_id": msg.get("message_id"),
+                    "session_id": msg_session,
+                    "new_message": msg.get("new_message")
+                })
+            
+            elif msg_type == "message_deleted":
+                await manager.notify_admins({
+                    "type": "message_deleted",
+                    "message_id": msg.get("message_id"),
+                    "session_id": msg_session
                 })
                 
     except WebSocketDisconnect:
@@ -226,7 +235,7 @@ async def ws_admin(websocket: WebSocket, token: str):
                             
                             print(f"💾 Admin reply saved - ID: {reply.id}")
                             
-                            # Send confirmation BACK to the admin who sent it
+                            # Send confirmation BACK to admin
                             await websocket.send_text(json.dumps({
                                 "type": "message_sent",
                                 "message_id": reply.id,
@@ -250,46 +259,65 @@ async def ws_admin(websocket: WebSocket, token: str):
                         print(f"❌ Error saving admin reply: {e}")
                         traceback.print_exc()
                 
-                # Handle image replies
-                elif msg_type == "image":
+                # Handle image, file, voice
+                elif msg_type in ["image", "file", "voice"]:
                     await manager.reply_to_customer(session_id, {
                         "type": "admin_reply",
-                        "message_type": "image",
+                        "message_type": msg_type,
                         "image_url": msg.get("image_url"),
-                        "admin_name": msg.get("admin_name", "Admin"),
-                        "timestamp": msg.get("timestamp", ""),
-                    })
-                
-                # Handle file replies
-                elif msg_type == "file":
-                    await manager.reply_to_customer(session_id, {
-                        "type": "admin_reply",
-                        "message_type": "file",
                         "file_data": msg.get("file_data"),
-                        "admin_name": msg.get("admin_name", "Admin"),
-                        "timestamp": msg.get("timestamp", ""),
-                    })
-                
-                # Handle voice replies
-                elif msg_type == "voice":
-                    await manager.reply_to_customer(session_id, {
-                        "type": "admin_reply",
-                        "message_type": "voice",
                         "voice_url": msg.get("voice_url"),
                         "voice_duration": msg.get("voice_duration"),
                         "admin_name": msg.get("admin_name", "Admin"),
                         "timestamp": msg.get("timestamp", ""),
                     })
                 
-                # Handle message_edited, message_deleted, message_reaction
-                elif msg_type in ["message_edited", "message_deleted", "message_reaction"]:
+                # Handle REACTION from admin
+                elif msg_type == "message_reaction":
+                    print(f"🎯 Admin reaction - Message: {msg.get('message_id')}, Reaction: {msg.get('reaction')}")
+                    
+                    # Update the database
+                    try:
+                        async with async_session() as db:
+                            result = await db.execute(
+                                select(ChatMessage).where(ChatMessage.id == msg.get("message_id"))
+                            )
+                            chat_msg = result.scalars().first()
+                            if chat_msg:
+                                new_reaction = msg.get("reaction")
+                                # If reaction is None or null, remove it
+                                if new_reaction is None or new_reaction == "null":
+                                    chat_msg.reaction = None
+                                else:
+                                    chat_msg.reaction = new_reaction
+                                await db.commit()
+                    except Exception as e:
+                        print(f"❌ Error saving reaction: {e}")
+                        traceback.print_exc()
+                    
+                    # Forward to customer with the new reaction value
                     await manager.reply_to_customer(session_id, {
-                        "type": msg_type,
+                        "type": "message_reaction",
                         "message_id": msg.get("message_id"),
                         "session_id": session_id,
-                        "new_message": msg.get("new_message"),
-                        "reaction": msg.get("reaction"),
+                        "reaction": msg.get("reaction"),  # Can be None to remove
                         "reacted_by": "Admin"
+                    })
+                
+                # Handle edit and delete from admin
+                elif msg_type == "message_edited":
+                    await manager.reply_to_customer(session_id, {
+                        "type": "message_edited",
+                        "message_id": msg.get("message_id"),
+                        "session_id": session_id,
+                        "new_message": msg.get("new_message")
+                    })
+                
+                elif msg_type == "message_deleted":
+                    await manager.reply_to_customer(session_id, {
+                        "type": "message_deleted",
+                        "message_id": msg.get("message_id"),
+                        "session_id": session_id
                     })
                     
     except WebSocketDisconnect:

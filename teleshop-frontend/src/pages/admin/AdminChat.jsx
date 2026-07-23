@@ -98,14 +98,16 @@ const AdminChat = () => {
     const ws = new WebSocket(`${getWsUrl()}/ws/admin/${token}`);
     wsRef.current = ws;
 
-    ws.onopen = () => setConnected(true);
+    ws.onopen = () => {
+      console.log('✅ Admin WS connected');
+      setConnected(true);
+    };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         console.log('📨 Admin received:', data.type, data);
 
-        // Handle customer messages
         if (data.type === 'customer_message') {
           const sid = data.session_id || data.from_user_id;
 
@@ -149,8 +151,6 @@ const AdminChat = () => {
           }
           loadSessions();
         }
-
-        // Handle confirmation of OWN sent message
         else if (data.type === 'message_sent') {
           if (activeChatRef.current === data.session_id) {
             setMessages(prev => {
@@ -168,8 +168,6 @@ const AdminChat = () => {
             });
           }
         }
-
-        // Handle message edits
         else if (data.type === 'message_edited') {
           if (activeChatRef.current === data.session_id) {
             setMessages(prev => prev.map(m =>
@@ -177,16 +175,13 @@ const AdminChat = () => {
             ));
           }
         }
-
-        // Handle message deletions
         else if (data.type === 'message_deleted') {
           if (activeChatRef.current === data.session_id) {
             setMessages(prev => prev.filter(m => m.id !== data.message_id));
           }
         }
-
-        // Handle reactions
         else if (data.type === 'message_reaction') {
+          console.log('📨 Reaction received:', data);
           if (activeChatRef.current === data.session_id) {
             setMessages(prev => prev.map(m =>
               m.id === data.message_id ? { ...m, reaction: data.reaction } : m
@@ -198,8 +193,14 @@ const AdminChat = () => {
       }
     };
 
-    ws.onclose = () => setConnected(false);
+    ws.onclose = () => {
+      console.log('🔌 Admin WS closed');
+      setConnected(false);
+    };
+
+    ws.onerror = (e) => console.error('WS error:', e);
   };
+
   const loadSessions = async () => {
     try {
       const res = await api.get('/chat/admin/sessions');
@@ -208,7 +209,9 @@ const AdminChat = () => {
         displayName: c.sender_name && c.sender_name !== 'Customer' ? c.sender_name : 'Customer',
         unread: c.session_id === activeChatRef.current ? 0 : (c.unread || 0)
       })));
-    } catch (e) { }
+    } catch (e) {
+      console.error('Failed to load sessions:', e);
+    }
   };
 
   const loadCustomerProfile = async (sessionId) => {
@@ -259,7 +262,10 @@ const AdminChat = () => {
           reaction: m.reaction || null,
         };
       }));
-    } catch (e) { setMessages([]); }
+    } catch (e) {
+      console.error('Failed to load messages:', e);
+      setMessages([]);
+    }
     setLoading(false);
   };
 
@@ -270,7 +276,6 @@ const AdminChat = () => {
     setInputEmojiPicker(false);
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // Send via WebSocket only
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         session_id: activeChat,
@@ -279,6 +284,25 @@ const AdminChat = () => {
         admin_name: user?.full_name || 'Admin',
         timestamp: time
       }));
+    } else {
+      // Fallback to REST API
+      try {
+        const res = await api.post('/chat/admin/reply', {
+          message: txt,
+          session_id: activeChat,
+          admin_name: user?.full_name || 'Admin'
+        });
+        setMessages(prev => [...prev, {
+          id: res.data.id,
+          from: 'admin',
+          text: txt,
+          type: 'text',
+          senderName: 'You',
+          time
+        }]);
+      } catch (e) {
+        console.error('Failed to send reply:', e);
+      }
     }
 
     loadSessions();
@@ -290,42 +314,189 @@ const AdminChat = () => {
     setCustomers(prev => prev.map(c => c.session_id === sessionId ? { ...c, unread: 0 } : c));
   };
 
-  const handleEditClick = () => { setMessageMenu(null); setEditDialog({ open: true, message: selectedMessage }); setEditText(selectedMessage?.text || ''); };
+  const handleReaction = async (msgId, emoji) => {
+    console.log('🎯 Reaction clicked - Message:', msgId, 'Emoji:', emoji);
+
+    // Find current message to check existing reaction
+    const currentMsg = messages.find(m => m.id === msgId);
+    const currentReaction = currentMsg?.reaction;
+
+    // Determine new reaction (toggle)
+    const newReaction = currentReaction === emoji ? null : emoji;
+
+    console.log('🔄 Current reaction:', currentReaction, '→ New reaction:', newReaction);
+
+    // Update local state immediately
+    setMessages(prev => prev.map(m =>
+      m.id === msgId ? { ...m, reaction: newReaction } : m
+    ));
+
+    setEmojiPickerId(null);
+
+    // Send via WebSocket
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'message_reaction',
+        message_id: msgId,
+        session_id: sessionId, // For customer
+        // activeChat for admin - make sure to use the right variable
+        reaction: newReaction, // Send null if removing
+        sender_name: customerName || 'Admin' // Adjust based on who's sending
+      }));
+    } else {
+      // Fallback to REST API
+      try {
+        await api.post(`/chat/messages/${msgId}/reaction`, { reaction: emoji });
+      } catch (e) {
+        console.error('Reaction failed:', e);
+        // Revert on failure
+        setMessages(prev => prev.map(m =>
+          m.id === msgId ? { ...m, reaction: currentReaction } : m
+        ));
+      }
+    }
+  };
+
+  const handleEditClick = () => {
+    setMessageMenu(null);
+    setEditDialog({ open: true, message: selectedMessage });
+    setEditText(selectedMessage?.text || '');
+  };
+
   const handleEditSave = async () => {
     if (!editDialog.message) return;
-    try { await api.put(`/chat/messages/${editDialog.message.id}`, { message: editText }); setMessages(prev => prev.map(m => m.id === editDialog.message.id ? { ...m, text: editText, isEdited: true } : m)); setEditDialog({ open: false, message: null }); } catch (e) { }
+    try {
+      await api.put(`/chat/messages/${editDialog.message.id}`, { message: editText });
+      setMessages(prev => prev.map(m =>
+        m.id === editDialog.message.id ? { ...m, text: editText, isEdited: true } : m
+      ));
+      setEditDialog({ open: false, message: null });
+
+      // Notify via WebSocket
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'message_edited',
+          message_id: editDialog.message.id,
+          session_id: activeChat,
+          new_message: editText
+        }));
+      }
+    } catch (e) {
+      console.error('Failed to edit message:', e);
+    }
   };
-  const handleDeleteClick = () => { setMessageMenu(null); setDeleteConfirm(selectedMessage); };
+
+  const handleDeleteClick = () => {
+    setMessageMenu(null);
+    setDeleteConfirm(selectedMessage);
+  };
+
   const handleDeleteConfirm = async () => {
     if (!deleteConfirm) return;
-    try { await api.delete(`/chat/messages/${deleteConfirm.id}`); setMessages(prev => prev.filter(m => m.id !== deleteConfirm.id)); setDeleteConfirm(null); } catch (e) { }
+    try {
+      await api.delete(`/chat/messages/${deleteConfirm.id}`);
+      setMessages(prev => prev.filter(m => m.id !== deleteConfirm.id));
+      setDeleteConfirm(null);
+
+      // Notify via WebSocket
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'message_deleted',
+          message_id: deleteConfirm.id,
+          session_id: activeChat
+        }));
+      }
+    } catch (e) {
+      console.error('Failed to delete message:', e);
+    }
   };
-  const handleReaction = async (msgId, emoji) => {
-    try { await api.post(`/chat/messages/${msgId}/reaction`, { reaction: emoji }); setMessages(prev => prev.map(m => m.id === msgId ? { ...m, reaction: m.reaction === emoji ? null : emoji } : m)); setEmojiPickerId(null); } catch (e) { }
+
+  const handleCopyText = (text) => {
+    if (text) {
+      navigator.clipboard.writeText(text);
+      setMessageMenu(null);
+    }
   };
-  const handleCopyText = (text) => { if (text) { navigator.clipboard.writeText(text); setMessageMenu(null); } };
 
   const handleImageUpload = async (e) => {
-    const file = e.target.files?.[0]; if (!file || !activeChat) return;
-    setUploading(true); const formData = new FormData(); formData.append('file', file); formData.append('session_id', activeChat); formData.append('is_admin', 'true');
+    const file = e.target.files?.[0];
+    if (!file || !activeChat) return;
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('session_id', activeChat);
+    formData.append('is_admin', 'true');
     try {
-      const res = await api.post('/chat/upload/image', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const res = await api.post('/chat/upload/image', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
       const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      setMessages(prev => [...prev, { id: res.data.id, from: 'admin', type: 'image', imageUrl: res.data.url, senderName: 'You', time }]);
-      if (wsRef.current?.readyState === WebSocket.OPEN) { wsRef.current.send(JSON.stringify({ session_id: activeChat, type: 'image', image_url: res.data.url, admin_name: user?.full_name || 'Admin', timestamp: time })); }
-    } catch (e) { } finally { setUploading(false); if (imageInputRef.current) imageInputRef.current.value = ''; }
+      setMessages(prev => [...prev, {
+        id: res.data.id,
+        from: 'admin',
+        type: 'image',
+        imageUrl: res.data.url,
+        senderName: 'You',
+        time
+      }]);
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          session_id: activeChat,
+          type: 'image',
+          image_url: res.data.url,
+          admin_name: user?.full_name || 'Admin',
+          timestamp: time
+        }));
+      }
+    } catch (e) {
+      console.error('Image upload failed:', e);
+    } finally {
+      setUploading(false);
+      if (imageInputRef.current) imageInputRef.current.value = '';
+    }
   };
 
   const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0]; if (!file || !activeChat) return;
-    setUploading(true); const formData = new FormData(); formData.append('file', file); formData.append('session_id', activeChat); formData.append('is_admin', 'true');
+    const file = e.target.files?.[0];
+    if (!file || !activeChat) return;
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('session_id', activeChat);
+    formData.append('is_admin', 'true');
     try {
-      const res = await api.post('/chat/upload/file', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const res = await api.post('/chat/upload/file', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
       const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const fileInfo = { name: res.data.name || file.name, size: res.data.size || file.size, url: res.data.url };
-      setMessages(prev => [...prev, { id: res.data.id, from: 'admin', type: 'file', fileData: fileInfo, senderName: 'You', time }]);
-      if (wsRef.current?.readyState === WebSocket.OPEN) { wsRef.current.send(JSON.stringify({ session_id: activeChat, type: 'file', file_data: fileInfo, admin_name: user?.full_name || 'Admin', timestamp: time })); }
-    } catch (e) { } finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
+      const fileInfo = {
+        name: res.data.name || file.name,
+        size: res.data.size || file.size,
+        url: res.data.url
+      };
+      setMessages(prev => [...prev, {
+        id: res.data.id,
+        from: 'admin',
+        type: 'file',
+        fileData: fileInfo,
+        senderName: 'You',
+        time
+      }]);
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          session_id: activeChat,
+          type: 'file',
+          file_data: fileInfo,
+          admin_name: user?.full_name || 'Admin',
+          timestamp: time
+        }));
+      }
+    } catch (e) {
+      console.error('File upload failed:', e);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const startRecording = async () => {
@@ -345,13 +516,32 @@ const AdminChat = () => {
         formData.append('duration', String(finalDuration));
         formData.append('is_admin', 'true');
         try {
-          const res = await api.post('/chat/upload/voice', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+          const res = await api.post('/chat/upload/voice', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          });
           const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          setMessages(prev => [...prev, { id: res.data.id, from: 'admin', type: 'voice', voiceUrl: res.data.url, voiceDuration: finalDuration, senderName: 'You', time }]);
+          setMessages(prev => [...prev, {
+            id: res.data.id,
+            from: 'admin',
+            type: 'voice',
+            voiceUrl: res.data.url,
+            voiceDuration: finalDuration,
+            senderName: 'You',
+            time
+          }]);
           if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ session_id: activeChat, type: 'voice', voice_url: res.data.url, voice_duration: finalDuration, admin_name: user?.full_name || 'Admin', timestamp: time }));
+            wsRef.current.send(JSON.stringify({
+              session_id: activeChat,
+              type: 'voice',
+              voice_url: res.data.url,
+              voice_duration: finalDuration,
+              admin_name: user?.full_name || 'Admin',
+              timestamp: time
+            }));
           }
-        } catch (e) { console.error('Voice upload error:', e); }
+        } catch (e) {
+          console.error('Voice upload error:', e);
+        }
         setIsRecording(false);
         setRecordingTime(0);
         stream.getTracks().forEach(track => track.stop());
@@ -362,7 +552,10 @@ const AdminChat = () => {
       setRecordingTime(0);
       let seconds = 0;
       recordingTimerRef.current = setInterval(() => { seconds++; setRecordingTime(seconds); }, 1000);
-    } catch (e) { console.error('Mic error:', e); alert('Please allow microphone access'); }
+    } catch (e) {
+      console.error('Mic error:', e);
+      alert('Please allow microphone access');
+    }
   };
 
   const stopRecording = () => {
@@ -463,10 +656,9 @@ const AdminChat = () => {
                       <Typography fontWeight={activeChat === c.session_id ? 700 : 500} fontSize={{ xs: '0.8rem', sm: '0.9rem' }} color="#050505" noWrap sx={{ maxWidth: 150 }}>
                         {c.displayName}
                       </Typography>
-                      {c.user_id && (
+                      {c.user_id ? (
                         <Chip label="Registered" size="small" sx={{ height: 18, fontSize: '0.55rem', bgcolor: '#e8f5e9', color: '#2e7d32', fontWeight: 500 }} />
-                      )}
-                      {!c.user_id && (
+                      ) : (
                         <Chip label="Guest" size="small" sx={{ height: 18, fontSize: '0.55rem', bgcolor: '#f1f5f9', color: '#64748b', fontWeight: 500 }} />
                       )}
                     </Stack>
@@ -493,7 +685,7 @@ const AdminChat = () => {
       {/* CHAT AREA */}
       <Box sx={{ flex: 1, display: { xs: activeChat ? 'flex' : 'none', sm: 'flex' }, flexDirection: 'column', bgcolor: '#f0f2f5' }}>
         {activeChat ? (<>
-          {/* HEADER - Clean without verify tick */}
+          {/* HEADER */}
           <Box sx={{ px: { xs: 1.5, sm: 2 }, py: { xs: 0.8, sm: 1 }, bgcolor: 'white', borderBottom: '1px solid #e4e6eb', flexShrink: 0 }}>
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Stack direction="row" spacing={1} alignItems="center">
@@ -501,7 +693,6 @@ const AdminChat = () => {
                   <ArrowBack sx={{ fontSize: { xs: 20, sm: 22 } }} />
                 </IconButton>
 
-                {/* Simple Avatar - Always Person icon, no verify tick */}
                 <Avatar sx={{ width: { xs: 34, sm: 40 }, height: { xs: 34, sm: 40 }, bgcolor: '#1877f2' }}>
                   <Person sx={{ fontSize: { xs: 18, sm: 20 } }} />
                 </Avatar>
@@ -511,24 +702,18 @@ const AdminChat = () => {
                     <Typography variant="subtitle2" fontWeight={600} color="#050505" fontSize={{ xs: '0.85rem', sm: '0.95rem' }} noWrap sx={{ maxWidth: { xs: 150, sm: 250 } }}>
                       {displayName}
                     </Typography>
-
-                    {/* Status badges instead of verify tick */}
                     {isRegistered ? (
                       <Chip label="Registered" size="small" sx={{ height: 18, fontSize: '0.55rem', bgcolor: '#e8f5e9', color: '#2e7d32', fontWeight: 500 }} />
                     ) : (
                       <Chip label="Guest" size="small" sx={{ height: 18, fontSize: '0.55rem', bgcolor: '#f1f5f9', color: '#64748b', fontWeight: 500 }} />
                     )}
                   </Stack>
-
-                  {/* Email */}
                   {displayEmail && (
                     <Typography variant="caption" color="#65676b" display="block" noWrap>
                       <Email sx={{ fontSize: 12, mr: 0.5, verticalAlign: 'middle' }} />
                       {displayEmail}
                     </Typography>
                   )}
-
-                  {/* Phone */}
                   {customerProfile?.phone && (
                     <Typography variant="caption" color="#65676b" display="block" noWrap>
                       <PhoneAndroid sx={{ fontSize: 12, mr: 0.5, verticalAlign: 'middle' }} />
@@ -546,85 +731,221 @@ const AdminChat = () => {
 
           {/* MESSAGES */}
           <Box sx={{ flex: 1, overflow: 'auto', px: { xs: 1, sm: 2, md: 3 }, py: 2 }}>
-            {loading ? <Box textAlign="center" py={6}><CircularProgress size={28} sx={{ color: '#1877f2' }} /></Box> :
-              messages.length === 0 ? (
-                <Box textAlign="center" pt={8}>
-                  <Avatar sx={{ width: 64, height: 64, bgcolor: '#1877f2', mx: 'auto', mb: 2 }}><Person sx={{ fontSize: 32 }} /></Avatar>
-                  <Typography fontWeight={600} color="#050505">{displayName}</Typography>
-                  {displayEmail && <Typography variant="body2" color="#65676b">{displayEmail}</Typography>}
-                  <Typography variant="body2" color="#94a3b8" mt={1}>No messages yet. Start the conversation!</Typography>
-                </Box>
-              ) : (
-                <Stack spacing={0.3}>
-                  {messages.map((m, i) => (
-                    <Box key={m.id || i} className="message-group" sx={{ display: 'flex', justifyContent: m.from === 'admin' ? 'flex-end' : 'flex-start', mb: 0.3, position: 'relative', '&:hover .msg-actions': { opacity: 1 } }}>
-                      {m.from === 'customer' && (
-                        <Avatar sx={{ width: 24, height: 24, mr: 0.5, bgcolor: '#1877f2', flexShrink: 0, mt: 0.5, display: { xs: 'none', sm: 'flex' } }}>
-                          <Person sx={{ fontSize: 14 }} />
-                        </Avatar>
-                      )}
-                      <Box sx={{ maxWidth: { xs: '90%', sm: '70%', md: '60%' }, position: 'relative' }}>
-                        {m.type === 'text' && (
-                          <Box className="msg-actions" sx={{
-                            position: 'absolute',
-                            top: -32,
-                            right: m.from === 'admin' ? 0 : 'auto',
-                            left: m.from === 'customer' ? 0 : 'auto',
-                            opacity: 0,
-                            transition: 'opacity 0.2s',
-                            bgcolor: 'white',
-                            borderRadius: 50,
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                            px: 0.3,
-                            display: 'flex',
-                            zIndex: 2,
-                            alignItems: 'center'
-                          }}>
-                            {/* Reactions for all messages */}
-                            {QUICK_REACTIONS.map(r => (
-                              <IconButton key={r} size="small" onClick={() => handleReaction(m.id, r)} sx={{ p: 0.3, '&:hover': { transform: 'scale(1.3)' } }}>
-                                <Typography sx={{ fontSize: '0.9rem' }}>{r}</Typography>
-                              </IconButton>
-                            ))}
-                            <IconButton size="small" onClick={(e) => { e.stopPropagation(); setEmojiPickerId(emojiPickerId === m.id ? null : m.id); }}>
-                              <InsertEmoticon sx={{ fontSize: 14, color: '#65676b' }} />
+            {loading ? (
+              <Box textAlign="center" py={6}><CircularProgress size={28} sx={{ color: '#1877f2' }} /></Box>
+            ) : messages.length === 0 ? (
+              <Box textAlign="center" pt={8}>
+                <Avatar sx={{ width: 64, height: 64, bgcolor: '#1877f2', mx: 'auto', mb: 2 }}><Person sx={{ fontSize: 32 }} /></Avatar>
+                <Typography fontWeight={600} color="#050505">{displayName}</Typography>
+                {displayEmail && <Typography variant="body2" color="#65676b">{displayEmail}</Typography>}
+                <Typography variant="body2" color="#94a3b8" mt={1}>No messages yet. Start the conversation!</Typography>
+              </Box>
+            ) : (
+              <Stack spacing={0.5}>
+                {messages.map((m, i) => (
+                  <Box
+                    key={m.id || i}
+                    className="message-group"
+                    sx={{
+                      display: 'flex',
+                      justifyContent: m.from === 'admin' ? 'flex-end' : 'flex-start',
+                      mb: 0.3,
+                      position: 'relative',
+                      '&:hover .msg-actions': {
+                        opacity: 1,
+                        visibility: 'visible'
+                      }
+                    }}
+                  >
+                    {/* Customer avatar */}
+                    {m.from === 'customer' && (
+                      <Avatar sx={{ width: 28, height: 28, mr: 0.5, bgcolor: '#1877f2', flexShrink: 0, mt: 0.5, display: { xs: 'none', sm: 'flex' } }}>
+                        <Person sx={{ fontSize: 14 }} />
+                      </Avatar>
+                    )}
+
+                    <Box sx={{ maxWidth: { xs: '90%', sm: '70%', md: '60%' }, position: 'relative' }}>
+
+                      {/* MESSAGE ACTIONS - Show on hover */}
+                      <Box
+                        className="msg-actions"
+                        sx={{
+                          position: 'absolute',
+                          top: -36,
+                          right: m.from === 'admin' ? 0 : 'auto',
+                          left: m.from === 'customer' ? 0 : 'auto',
+                          opacity: 0,
+                          visibility: 'hidden',
+                          transition: 'opacity 0.2s ease, visibility 0.2s ease',
+                          bgcolor: 'white',
+                          borderRadius: '20px',
+                          boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+                          px: 0.5,
+                          py: 0.3,
+                          display: 'flex',
+                          zIndex: 10,
+                          alignItems: 'center',
+                          border: '1px solid #e4e6eb'
+                        }}
+                      >
+                        {/* Quick reactions - Available for ALL message types */}
+                        {QUICK_REACTIONS.map(r => (
+                          <IconButton
+                            key={r}
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleReaction(m.id, r);
+                            }}
+                            sx={{ p: 0.3, '&:hover': { transform: 'scale(1.4)', bgcolor: '#f0f2f5' }, transition: 'transform 0.15s ease' }}
+                          >
+                            <Typography sx={{ fontSize: '1rem' }}>{r}</Typography>
+                          </IconButton>
+                        ))}
+
+                        {/* More emoji picker */}
+                        <IconButton
+                          size="small"
+                          onClick={(e) => { e.stopPropagation(); setEmojiPickerId(emojiPickerId === m.id ? null : m.id); }}
+                          sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}
+                        >
+                          <InsertEmoticon sx={{ fontSize: 16, color: '#65676b' }} />
+                        </IconButton>
+
+                        {/* Edit/Delete for admin's own messages - Only for text messages */}
+                        {m.from === 'admin' && m.type === 'text' && (
+                          <IconButton size="small" onClick={(e) => { e.stopPropagation(); setSelectedMessage(m); setMessageMenu(e.currentTarget); }}
+                            sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}>
+                            <MoreHoriz sx={{ fontSize: 16, color: '#65676b' }} />
+                          </IconButton>
+                        )}
+
+                        {/* Copy for all messages */}
+                        <IconButton size="small" onClick={(e) => {
+                          e.stopPropagation();
+                          if (m.type === 'text') {
+                            handleCopyText(m.text);
+                          } else if (m.type === 'image') {
+                            handleCopyText(m.imageUrl);
+                          } else if (m.type === 'file' && m.fileData) {
+                            handleCopyText(m.fileData.url);
+                          } else if (m.type === 'voice' && m.voiceUrl) {
+                            handleCopyText(m.voiceUrl);
+                          }
+                        }}
+                          sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}>
+                          <ContentCopy sx={{ fontSize: 14, color: '#65676b' }} />
+                        </IconButton>
+                      </Box>
+
+                      {/* Emoji picker popup */}
+                      {emojiPickerId === m.id && (
+                        <Box sx={{ position: 'absolute', bottom: m.reaction ? 50 : 30, right: m.from === 'admin' ? 0 : 'auto', left: m.from === 'customer' ? 0 : 'auto', zIndex: 1000 }}>
+                          <Box sx={{ position: 'relative' }}>
+                            <EmojiPicker
+                              onEmojiClick={(emojiData) => { handleReaction(m.id, emojiData.emoji); }}
+                              emojiStyle={EmojiStyle.NATIVE} theme={Theme.LIGHT}
+                              width={isMobile ? 280 : 320} height={380}
+                              lazyLoadEmojis={true} previewConfig={{ showPreview: false }} skinTonesDisabled={true}
+                            />
+                            <IconButton size="small" onClick={() => setEmojiPickerId(null)}
+                              sx={{ position: 'absolute', top: 5, right: 5, bgcolor: 'white', '&:hover': { bgcolor: '#f0f2f5' } }}>
+                              <Close sx={{ fontSize: 16 }} />
                             </IconButton>
+                          </Box>
+                        </Box>
+                      )}
 
-                            {/* Edit/Delete/Copy for admin's own messages */}
-                            {m.from === 'admin' && (
-                              <IconButton size="small" onClick={(e) => { setSelectedMessage(m); setMessageMenu(e.currentTarget); }}>
-                                <MoreHoriz sx={{ fontSize: 14 }} />
-                              </IconButton>
-                            )}
+                      {/* Message bubble */}
+                      <Box sx={{
+                        px: m.type === 'text' ? 1.5 : 0,
+                        py: m.type === 'text' ? 1 : 0,
+                        borderRadius: m.type === 'text' ? (m.from === 'admin' ? '18px 18px 4px 18px' : '18px 18px 18px 4px') : '12px',
+                        bgcolor: m.type === 'text' ? (m.from === 'admin' ? '#1877f2' : '#e4e6eb') : 'transparent',
+                        color: m.type === 'text' ? (m.from === 'admin' ? 'white' : '#050505') : 'inherit',
+                        display: 'inline-block',
+                        maxWidth: '100%',
+                        overflow: 'visible',
+                        position: 'relative'
+                      }}>
+                        {/* Text message */}
+                        {m.type === 'text' && (
+                          <Typography variant="body2" sx={{ fontSize: { xs: '0.8rem', sm: '0.9rem' }, lineHeight: 1.4, wordBreak: 'break-word' }}>
+                            {m.text}
+                            {m.isEdited && <Typography component="span" variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7, ml: 0.5 }}>(edited)</Typography>}
+                          </Typography>
+                        )}
 
-                            {/* Copy for customer messages */}
-                            {m.from === 'customer' && (
-                              <IconButton size="small" onClick={() => handleCopyText(m.text)}>
-                                <ContentCopy sx={{ fontSize: 12 }} />
-                              </IconButton>
-                            )}
+                        {/* Image message */}
+                        {m.type === 'image' && (
+                          <Box sx={{ maxWidth: 250, borderRadius: 2, overflow: 'hidden', cursor: 'pointer', position: 'relative' }} onClick={() => window.open(m.imageUrl, '_blank')}>
+                            <img src={m.imageUrl} alt="Shared" style={{ width: '100%', display: 'block' }} />
                           </Box>
                         )}
-                        {emojiPickerId === m.id && (<Box sx={{ position: 'absolute', bottom: 40, right: 0, zIndex: 1000 }}><Box sx={{ position: 'relative' }}><EmojiPicker onEmojiClick={(emojiData) => { handleReaction(m.id, emojiData.emoji); }} emojiStyle={EmojiStyle.NATIVE} theme={Theme.LIGHT} width={isMobile ? 280 : 320} height={380} lazyLoadEmojis={true} previewConfig={{ showPreview: false }} skinTonesDisabled={true} /><IconButton size="small" onClick={() => setEmojiPickerId(null)} sx={{ position: 'absolute', top: 5, right: 5, bgcolor: 'white' }}><Close sx={{ fontSize: 16 }} /></IconButton></Box></Box>)}
-                        <Box sx={{ px: m.type === 'text' ? 1.5 : 0, py: m.type === 'text' ? 1 : 0, borderRadius: m.from === 'admin' ? '18px 18px 4px 18px' : '18px 18px 18px 4px', bgcolor: m.type === 'text' ? (m.from === 'admin' ? '#1877f2' : '#e4e6eb') : 'transparent', color: m.type === 'text' ? (m.from === 'admin' ? 'white' : '#050505') : 'inherit', display: 'inline-block', maxWidth: '100%', overflow: 'hidden' }}>
-                          {m.type === 'text' && <Typography variant="body2" sx={{ fontSize: { xs: '0.8rem', sm: '0.9rem' }, lineHeight: 1.4, wordBreak: 'break-word' }}>{m.text}</Typography>}
-                          {m.type === 'image' && <Box sx={{ maxWidth: 250, borderRadius: 2, overflow: 'hidden', cursor: 'pointer' }} onClick={() => window.open(m.imageUrl, '_blank')}><img src={m.imageUrl} alt="Shared" style={{ width: '100%', display: 'block' }} /></Box>}
-                          {m.type === 'file' && m.fileData && <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer', bgcolor: 'white' }} onClick={() => window.open(m.fileData.url, '_blank')}><AttachFile sx={{ color: '#1877f2' }} /><Box><Typography variant="body2" fontWeight={600}>{m.fileData.name}</Typography><Typography variant="caption" color="#65676b">{Math.round(m.fileData.size / 1024)} KB</Typography></Box></Paper>}
-                          {m.type === 'voice' && <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1, bgcolor: 'white', borderRadius: 2 }}><IconButton size="small" onClick={() => playVoice(m.voiceUrl, m.id)}>{playingAudio === m.id ? <Pause sx={{ color: '#1877f2' }} /> : <PlayArrow sx={{ color: '#1877f2' }} />}</IconButton><Box sx={{ flex: 1, height: 4, bgcolor: '#e4e6eb', borderRadius: 2, overflow: 'hidden' }}><Box sx={{ width: `${Math.min((m.voiceDuration || 1) * 2, 100)}%`, height: '100%', bgcolor: '#1877f2', borderRadius: 2 }} /></Box><Typography variant="caption" color="#65676b">{m.voiceDuration || 0}s</Typography></Box>}
-                        </Box>
-                        {m.reaction && <Chip label={m.reaction} size="small" sx={{ position: 'absolute', bottom: -10, right: 0, height: 20, fontSize: '0.75rem', bgcolor: 'white', boxShadow: 1, borderRadius: 50 }} />}
-                        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.2, mx: 0.5 }}>
-                          {m.from === 'customer' && m.senderName && m.senderName !== 'Customer' && <Typography variant="caption" fontWeight={600} color="#1877f2" fontSize="0.6rem">{m.senderName}</Typography>}
-                          {m.isEdited && <Typography variant="caption" color="#94a3b8" fontSize="0.55rem">Edited</Typography>}
-                          <Typography variant="caption" sx={{ color: '#65676b', fontSize: { xs: '0.6rem', sm: '0.65rem' } }}>{m.time}</Typography>
-                        </Stack>
+
+                        {/* File message */}
+                        {m.type === 'file' && m.fileData && (
+                          <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer', bgcolor: 'white', borderRadius: 2 }} onClick={() => window.open(m.fileData.url, '_blank')}>
+                            <AttachFile sx={{ color: '#1877f2' }} />
+                            <Box>
+                              <Typography variant="body2" fontWeight={600}>{m.fileData.name}</Typography>
+                              <Typography variant="caption" color="#65676b">{Math.round(m.fileData.size / 1024)} KB</Typography>
+                            </Box>
+                          </Paper>
+                        )}
+
+                        {/* Voice message */}
+                        {m.type === 'voice' && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1, bgcolor: 'white', borderRadius: 2 }}>
+                            <IconButton size="small" onClick={() => playVoice(m.voiceUrl, m.id)}>
+                              {playingAudio === m.id ? <Pause sx={{ color: '#1877f2' }} /> : <PlayArrow sx={{ color: '#1877f2' }} />}
+                            </IconButton>
+                            <Box sx={{ flex: 1, height: 4, bgcolor: '#e4e6eb', borderRadius: 2, overflow: 'hidden' }}>
+                              <Box sx={{ width: `${Math.min((m.voiceDuration || 1) * 2, 100)}%`, height: '100%', bgcolor: '#1877f2', borderRadius: 2 }} />
+                            </Box>
+                            <Typography variant="caption" color="#65676b">{m.voiceDuration || 0}s</Typography>
+                          </Box>
+                        )}
                       </Box>
-                      {m.from === 'admin' && <Avatar sx={{ width: 24, height: 24, ml: 0.5, bgcolor: '#42b72a', flexShrink: 0, mt: 0.5, display: { xs: 'none', sm: 'flex' } }}><SupportAgent sx={{ fontSize: 14 }} /></Avatar>}
+
+                      {/* Reaction badge */}
+                      {m.reaction && (
+                        <Box sx={{ position: 'absolute', bottom: -14, right: m.from === 'admin' ? 4 : 'auto', left: m.from === 'customer' ? 4 : 'auto', zIndex: 5 }}>
+                          <Chip
+                            label={m.reaction}
+                            size="small"
+                            onClick={() => handleReaction(m.id, m.reaction)}
+                            sx={{
+                              height: 22, fontSize: '0.8rem', bgcolor: 'white',
+                              boxShadow: '0 1px 4px rgba(0,0,0,0.15)', borderRadius: '12px',
+                              border: '1px solid #e4e6eb', cursor: 'pointer',
+                              '&:hover': { bgcolor: '#f0f2f5' }
+                            }}
+                          />
+                        </Box>
+                      )}
+
+                      {/* Timestamp */}
+                      <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.2, mx: 0.5 }}>
+                        {m.from === 'customer' && m.senderName && m.senderName !== 'Customer' && (
+                          <Typography variant="caption" fontWeight={600} color="#1877f2" fontSize="0.6rem">{m.senderName}</Typography>
+                        )}
+                        {m.isEdited && <Typography variant="caption" color="#94a3b8" fontSize="0.55rem">Edited</Typography>}
+                        <Typography variant="caption" sx={{ color: '#65676b', fontSize: { xs: '0.6rem', sm: '0.65rem' } }}>{m.time}</Typography>
+                      </Stack>
                     </Box>
-                  ))}
-                  <div ref={messagesEndRef} />
-                </Stack>
-              )}
+
+                    {/* Admin avatar */}
+                    {m.from === 'admin' && (
+                      <Avatar sx={{ width: 28, height: 28, ml: 0.5, bgcolor: '#42b72a', flexShrink: 0, mt: 0.5, display: { xs: 'none', sm: 'flex' } }}>
+                        <SupportAgent sx={{ fontSize: 14 }} />
+                      </Avatar>
+                    )}
+                  </Box>
+                ))}
+                <div ref={messagesEndRef} />
+              </Stack>
+            )}
             {uploading && <LinearProgress sx={{ mt: 1, borderRadius: 2 }} />}
           </Box>
 
@@ -637,12 +958,23 @@ const AdminChat = () => {
               <IconButton size="small" onClick={() => imageInputRef.current?.click()} sx={{ color: '#65676b' }}><Image sx={{ fontSize: { xs: 20, sm: 22 } }} /></IconButton>
               <IconButton size="small" onClick={() => fileInputRef.current?.click()} sx={{ color: '#65676b' }}><AttachFile sx={{ fontSize: { xs: 20, sm: 22 } }} /></IconButton>
               <Box sx={{ flex: 1, bgcolor: '#f0f2f5', borderRadius: 50, px: 1.5 }}>
-                <TextField fullWidth multiline maxRows={4} size="small" placeholder="Aa" value={input} onChange={e => setInput(e.target.value)} onKeyPress={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }} variant="standard" InputProps={{ disableUnderline: true, sx: { fontSize: { xs: '0.8rem', sm: '0.9rem' } } }} />
+                <TextField fullWidth multiline maxRows={4} size="small" placeholder="Aa" value={input} onChange={e => setInput(e.target.value)}
+                  onKeyPress={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                  variant="standard" InputProps={{ disableUnderline: true, sx: { fontSize: { xs: '0.8rem', sm: '0.9rem' } } }} />
               </Box>
-              {input.trim() ? <IconButton onClick={handleSend} sx={{ color: '#1877f2' }}><Send sx={{ fontSize: { xs: 20, sm: 22 } }} /></IconButton> :
-                <IconButton onMouseDown={startRecording} onMouseUp={stopRecording} onTouchStart={startRecording} onTouchEnd={stopRecording} sx={{ color: '#1877f2' }}>{isRecording ? <Stop sx={{ fontSize: { xs: 20, sm: 22 }, color: '#ef4444' }} /> : <Mic sx={{ fontSize: { xs: 20, sm: 22 } }} />}</IconButton>}
+              {input.trim() ? (
+                <IconButton onClick={handleSend} sx={{ color: '#1877f2' }}><Send sx={{ fontSize: { xs: 20, sm: 22 } }} /></IconButton>
+              ) : (
+                <IconButton onMouseDown={startRecording} onMouseUp={stopRecording} onTouchStart={startRecording} onTouchEnd={stopRecording} sx={{ color: '#1877f2' }}>
+                  {isRecording ? <Stop sx={{ fontSize: { xs: 20, sm: 22 }, color: '#ef4444' }} /> : <Mic sx={{ fontSize: { xs: 20, sm: 22 } }} />}
+                </IconButton>
+              )}
             </Stack>
-            {inputEmojiPicker && (<Box sx={{ position: 'absolute', bottom: 60, left: 0, zIndex: 1000 }}><EmojiPicker onEmojiClick={(emojiData) => { setInput(prev => prev + emojiData.emoji); }} emojiStyle={EmojiStyle.NATIVE} theme={Theme.LIGHT} width={isMobile ? window.innerWidth - 32 : 350} height={350} /></Box>)}
+            {inputEmojiPicker && (
+              <Box sx={{ position: 'absolute', bottom: 60, left: 0, zIndex: 1000 }}>
+                <EmojiPicker onEmojiClick={(emojiData) => { setInput(prev => prev + emojiData.emoji); }} emojiStyle={EmojiStyle.NATIVE} theme={Theme.LIGHT} width={isMobile ? window.innerWidth - 32 : 350} height={350} />
+              </Box>
+            )}
           </Box>
         </>) : (
           <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', p: 3 }}>
