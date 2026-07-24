@@ -1,23 +1,21 @@
-// src/components/chat/ChatSupport.jsx
 import { useState, useEffect, useRef } from 'react';
 import {
   Box, Fab, Drawer, Typography, TextField, Stack, IconButton,
   Avatar, Paper, Chip, useMediaQuery, useTheme, Menu, MenuItem,
 } from '@mui/material';
 import {
-  Chat as ChatIcon, Close, Send, Telegram,
-  SupportAgent, Phone, Image, AttachFile, Mic, Stop,
+  Chat as ChatIcon, Close, Send,
+  SupportAgent, Image, AttachFile, Mic, Stop,
   PlayArrow, Pause, Circle, Edit, Delete, MoreHoriz,
   InsertEmoticon, ContentCopy,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../api/axios';
 import EmojiPicker, { EmojiStyle, Theme } from 'emoji-picker-react';
+import FileViewer from './FileViewer';
 
 const getWsUrl = () => {
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-  
-  // Check if we're in production (Render) or local development
   if (apiUrl.includes('onrender.com')) {
     return apiUrl.replace('https://', 'wss://').replace('/api', '');
   } else {
@@ -46,8 +44,8 @@ const ChatSupport = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [connected, setConnected] = useState(false);
+  const [viewer, setViewer] = useState({ open: false, imageUrl: '', fileData: null, messageId: null });
 
-  // Session ID based on user
   const [sessionId, setSessionId] = useState(() => {
     if (user?.id) return `user_${user.id}`;
     let id = localStorage.getItem('chat_guest_session');
@@ -82,7 +80,6 @@ const ChatSupport = () => {
   const customerName = getCustomerDisplayName(user);
   const customerEmail = getCustomerEmail(user);
 
-  // Update session when user changes
   useEffect(() => {
     if (user?.id) {
       setSessionId(`user_${user.id}`);
@@ -90,20 +87,14 @@ const ChatSupport = () => {
     }
   }, [user?.id]);
 
-  // Connect WebSocket
   useEffect(() => {
     if (!token) return;
-
     const wsUrl = `${getWsUrl()}/ws/customer/${token}`;
-    console.log('🔗 Customer connecting:', wsUrl);
-
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log('✅ Customer WS connected');
       setConnected(true);
-
       ws.send(JSON.stringify({
         type: "connect",
         session_id: sessionId,
@@ -116,78 +107,69 @@ const ChatSupport = () => {
     ws.onmessage = (e) => {
       try {
         const d = JSON.parse(e.data);
-        console.log('📨 Customer received:', d.type);
 
         if (d.type === 'session_deleted') {
           setMessages(prev => [...prev, {
             id: 'system_' + Date.now(),
             from: 'support',
-            text: '🔒 This chat session has been ended by the admin. You can start a new conversation if you need further assistance.',
+            text: '🔒 This chat session has been ended by the admin.',
             type: 'text',
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           }]);
-
-          // Clear the session ID so a new one will be created
           localStorage.removeItem('chat_guest_session');
-
-          // Generate new session ID
           const newSessionId = user?.id ? `user_${user.id}` : 'guest_' + Date.now();
           setSessionId(newSessionId);
         }
+
         if (d.type === 'admin_reply') {
           setMessages(prev => {
             if (d.message_id && prev.find(m => m.id === d.message_id)) return prev;
-            return [...prev, {
+            const msgType = d.message_type || 'text';
+            let messageData = {
               id: d.message_id || ('admin_' + Date.now()),
               from: 'admin',
-              text: d.message,
-              type: d.message_type || 'text',
-              imageUrl: d.image_url || null,
-              fileData: d.file_data || null,
-              voiceUrl: d.voice_url || null,
-              voiceDuration: d.voice_duration || 0,
+              type: msgType,
               time: d.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               adminName: d.admin_name,
               isEdited: false,
               reaction: null
-            }];
+            };
+            if (msgType === 'text') messageData.text = d.message || '';
+            else if (msgType === 'image') { messageData.imageUrl = d.image_url || d.message || ''; messageData.text = ''; }
+            else if (msgType === 'file') {
+              if (typeof d.file_data === 'string') {
+                try { messageData.fileData = JSON.parse(d.file_data); } catch { messageData.fileData = { url: d.file_data, name: 'File', size: 0 }; }
+              } else {
+                messageData.fileData = d.file_data || { url: '', name: 'File', size: 0 };
+              }
+              messageData.text = '';
+            }
+            else if (msgType === 'voice') { messageData.voiceUrl = d.voice_url || ''; messageData.voiceDuration = d.voice_duration || 0; messageData.text = ''; }
+            return [...prev, messageData];
           });
         }
         else if (d.type === 'message_sent') {
           setMessages(prev => {
             if (d.message_id && prev.find(m => m.id === d.message_id)) return prev;
-            return [...prev, {
-              id: d.message_id,
-              from: 'user',
-              text: d.message,
-              type: d.message_type || 'text',
-              time: d.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              isEdited: false,
-              reaction: null
-            }];
+            return [...prev, { id: d.message_id, from: 'user', text: d.message || '', type: d.message_type || 'text', time: d.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), isEdited: false, reaction: null }];
           });
         }
         else if (d.type === 'message_edited') {
-          setMessages(prev => prev.map(m =>
-            m.id === d.message_id ? { ...m, text: d.new_message, isEdited: true } : m
-          ));
+          setMessages(prev => prev.map(m => m.id === d.message_id ? { ...m, text: d.new_message, isEdited: true } : m));
         }
         else if (d.type === 'message_deleted') {
           setMessages(prev => prev.filter(m => m.id !== d.message_id));
         }
         else if (d.type === 'message_reaction') {
-          setMessages(prev => prev.map(m =>
-            m.id === d.message_id ? { ...m, reaction: d.reaction || null } : m
-          ));
+          setMessages(prev => prev.map(m => m.id === d.message_id ? { ...m, reaction: d.reaction || null } : m));
         }
       } catch (err) {
         console.error('WebSocket message error:', err);
       }
     };
 
-    ws.onclose = () => { console.log('🔌 Customer WS closed'); setConnected(false); };
+    ws.onclose = () => setConnected(false);
     ws.onerror = (e) => console.error('WS error:', e);
-
     return () => { if (ws.readyState === WebSocket.OPEN) ws.close(); };
   }, [token, sessionId]);
 
@@ -204,16 +186,11 @@ const ChatSupport = () => {
         setMessages(res.data.map(m => {
           const msgType = m.message_type || 'text';
           let imageUrl = null, fileData = null, voiceUrl = null, voiceDuration = 0;
-          if (msgType === 'image') imageUrl = m.message;
-          else if (msgType === 'file') { try { fileData = JSON.parse(m.message); } catch { fileData = { url: m.message, name: 'File', size: 0 }; } }
-          else if (msgType === 'voice') { try { const vd = JSON.parse(m.message); voiceUrl = vd.url; voiceDuration = vd.duration || 0; } catch { voiceUrl = m.message; } }
-          return {
-            id: m.id, from: m.is_admin_reply ? 'admin' : 'user', text: m.message, type: msgType,
-            imageUrl, fileData, voiceUrl, voiceDuration,
-            time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            adminName: m.is_admin_reply ? m.sender_name : null,
-            isEdited: m.is_edited || false, reaction: m.reaction || null,
-          };
+          let text = m.message || '';
+          if (msgType === 'image') { imageUrl = m.message; text = ''; }
+          else if (msgType === 'file') { try { fileData = JSON.parse(m.message); text = ''; } catch { fileData = { url: m.message, name: 'File', size: 0 }; text = ''; } }
+          else if (msgType === 'voice') { try { const vd = JSON.parse(m.message); voiceUrl = vd.url; voiceDuration = vd.duration || 0; text = ''; } catch { voiceUrl = m.message; text = ''; } }
+          return { id: m.id, from: m.is_admin_reply ? 'admin' : 'user', text, type: msgType, imageUrl, fileData, voiceUrl, voiceDuration, time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), adminName: m.is_admin_reply ? m.sender_name : null, isEdited: m.is_edited || false, reaction: m.reaction || null };
         }));
       } else {
         setMessages([{ id: 'welcome', from: 'support', text: '👋 Welcome! How can we help you?', type: 'text', time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
@@ -227,12 +204,8 @@ const ChatSupport = () => {
     if (!input.trim()) return;
     const txt = input; setInput('');
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        message: txt, sender_name: customerName, sender_email: customerEmail,
-        session_id: sessionId, type: 'text', timestamp: time
-      }));
+      wsRef.current.send(JSON.stringify({ message: txt, sender_name: customerName, sender_email: customerEmail, session_id: sessionId, type: 'text', timestamp: time }));
     } else {
       try {
         const res = await api.post('/chat/send', { message: txt, sender_name: customerName, sender_email: customerEmail, session_id: sessionId });
@@ -278,13 +251,21 @@ const ChatSupport = () => {
 
   const handleCopyText = (text) => { if (text) { navigator.clipboard.writeText(text); setMessageMenu(null); } };
 
+  const handleOpenViewer = (imageUrl = null, fileData = null, messageId = null) => {
+    setViewer({ open: true, imageUrl: imageUrl || '', fileData, messageId });
+  };
+
+  const handleCloseViewer = () => {
+    setViewer({ open: false, imageUrl: '', fileData: null, messageId: null });
+  };
+
   const handleImageUpload = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
     setUploading(true); const formData = new FormData(); formData.append('file', file); formData.append('session_id', sessionId); formData.append('is_admin', 'false');
     try {
       const res = await api.post('/chat/upload/image', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      setMessages(prev => [...prev, { id: res.data.id, from: 'user', type: 'image', imageUrl: res.data.url, time }]);
+      setMessages(prev => [...prev, { id: res.data.id, from: 'user', type: 'image', imageUrl: res.data.url, text: '', time }]);
     } catch (e) { } finally { setUploading(false); if (imageInputRef.current) imageInputRef.current.value = ''; }
   };
 
@@ -295,7 +276,7 @@ const ChatSupport = () => {
       const res = await api.post('/chat/upload/file', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const fi = { name: res.data.name || file.name, size: res.data.size || file.size, url: res.data.url };
-      setMessages(prev => [...prev, { id: res.data.id, from: 'user', type: 'file', fileData: fi, time }]);
+      setMessages(prev => [...prev, { id: res.data.id, from: 'user', type: 'file', fileData: fi, text: '', time }]);
     } catch (e) { } finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
   };
 
@@ -312,13 +293,17 @@ const ChatSupport = () => {
         try {
           const res = await api.post('/chat/upload/voice', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
           const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          setMessages(prev => [...prev, { id: res.data.id, from: 'user', type: 'voice', voiceUrl: res.data.url, voiceDuration: res.data.duration || finalDuration, time }]);
+          setMessages(prev => [...prev, { id: res.data.id, from: 'user', type: 'voice', voiceUrl: res.data.url, voiceDuration: res.data.duration || finalDuration, text: '', time }]);
         } catch (e) { }
         setIsRecording(false); setRecordingTime(0);
         stream.getTracks().forEach(t => t.stop());
       };
       mr.start(); mediaRecorderRef.current = mr; setIsRecording(true); setRecordingTime(0);
-      let s = 0; recordingTimerRef.current = setInterval(() => { s++; setRecordingTime(s); }, 1000);
+      let s = 0;
+      recordingTimerRef.current = setInterval(() => {
+        s++;
+        setRecordingTime(s);  // This should update every second
+      }, 1000);
     } catch (e) { alert('Please allow microphone access'); }
   };
 
@@ -355,15 +340,12 @@ const ChatSupport = () => {
             <Box key={m.id || i} className="message-group" sx={{ display: 'flex', justifyContent: m.from === 'user' ? 'flex-end' : 'flex-start', position: 'relative', '&:hover .msg-actions': { opacity: 1, visibility: 'visible' } }}>
               {(m.from === 'support' || m.from === 'admin') && <Avatar sx={{ width: 28, height: 28, mr: 0.5, bgcolor: m.from === 'admin' ? '#42b72a' : '#0084ff', flexShrink: 0 }}><SupportAgent sx={{ fontSize: 16 }} /></Avatar>}
               <Box sx={{ maxWidth: '85%', position: 'relative' }}>
-
-                {/* Message Actions */}
                 <Box className="msg-actions" sx={{ position: 'absolute', top: -36, right: m.from === 'user' ? 0 : 'auto', left: m.from !== 'user' ? 0 : 'auto', opacity: 0, visibility: 'hidden', transition: 'opacity 0.2s ease, visibility 0.2s ease', bgcolor: 'white', borderRadius: '20px', boxShadow: '0 2px 12px rgba(0,0,0,0.15)', px: 0.5, py: 0.3, display: 'flex', zIndex: 10, alignItems: 'center', border: '1px solid #e4e6eb' }}>
                   {QUICK_REACTIONS.map(r => (<IconButton key={r} size="small" onClick={(e) => { e.stopPropagation(); handleReaction(m.id, r); }} sx={{ p: 0.3, '&:hover': { transform: 'scale(1.4)', bgcolor: '#f0f2f5' } }}><Typography sx={{ fontSize: '1rem' }}>{r}</Typography></IconButton>))}
                   <IconButton size="small" onClick={(e) => { e.stopPropagation(); setEmojiPickerId(emojiPickerId === m.id ? null : m.id); }} sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}><InsertEmoticon sx={{ fontSize: 16, color: '#65676b' }} /></IconButton>
                   {m.from === 'user' && <IconButton size="small" onClick={(e) => { e.stopPropagation(); setSelectedMessage(m); setMessageMenu(e.currentTarget); }} sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}><MoreHoriz sx={{ fontSize: 16, color: '#65676b' }} /></IconButton>}
                   <IconButton size="small" onClick={(e) => { e.stopPropagation(); if (m.type === 'text') handleCopyText(m.text); else if (m.type === 'image') handleCopyText(m.imageUrl); else if (m.type === 'file' && m.fileData) handleCopyText(m.fileData.url); else if (m.type === 'voice' && m.voiceUrl) handleCopyText(m.voiceUrl); }} sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}><ContentCopy sx={{ fontSize: 14, color: '#65676b' }} /></IconButton>
                 </Box>
-
                 {emojiPickerId === m.id && (
                   <Box sx={{ position: 'absolute', bottom: 40, right: 0, zIndex: 1000 }}>
                     <Box sx={{ position: 'relative' }}>
@@ -372,8 +354,6 @@ const ChatSupport = () => {
                     </Box>
                   </Box>
                 )}
-
-                {/* Message Bubble */}
                 <Box sx={{ px: m.type === 'text' ? 1.5 : 0, py: m.type === 'text' ? 1 : 0, borderRadius: m.type === 'text' ? '18px 18px 4px 18px' : '12px', bgcolor: m.type === 'text' ? ((m.from === 'admin' || m.from === 'user') ? '#0084ff' : '#e4e6eb') : 'transparent', color: m.type === 'text' ? ((m.from === 'admin' || m.from === 'user') ? 'white' : '#050505') : 'inherit', display: 'inline-block', maxWidth: '100%', overflow: 'visible', position: 'relative' }}>
                   {editingMessageId === m.id ? (
                     <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', p: 0.5 }}>
@@ -384,15 +364,25 @@ const ChatSupport = () => {
                   ) : (
                     <>
                       {m.type === 'text' && <Typography variant="body2" sx={{ fontSize: '0.85rem' }}>{m.text}{m.isEdited && <Typography component="span" variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7, ml: 0.5 }}>(edited)</Typography>}</Typography>}
-                      {m.type === 'image' && <Box sx={{ position: 'relative' }}><Box sx={{ maxWidth: 200, borderRadius: '12px', overflow: 'hidden', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', '&:hover': { opacity: 0.95 } }} onClick={() => window.open(m.imageUrl, '_blank')}><img src={m.imageUrl} alt="📷 Photo" style={{ width: '100%', display: 'block', maxHeight: 200, objectFit: 'cover' }} /></Box><Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#65676b', opacity: 0.8, fontSize: '0.7rem' }}>📷 Photo</Typography></Box>}
-                      {m.type === 'file' && m.fileData && <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, cursor: 'pointer', bgcolor: 'white', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #e4e6eb', '&:hover': { bgcolor: '#f8fafc', borderColor: '#0084ff' } }} onClick={() => window.open(m.fileData.url, '_blank')}><Box sx={{ width: 44, height: 44, borderRadius: '10px', bgcolor: '#e8f0fe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><AttachFile sx={{ color: '#0084ff', fontSize: 22 }} /></Box><Box sx={{ flex: 1, minWidth: 0 }}><Typography variant="body2" fontWeight={600} fontSize="0.8rem" noWrap sx={{ color: '#1a1a1a' }}>{m.fileData.name || '📎 File'}</Typography><Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.3 }}><Typography variant="caption" color="#65676b" fontSize="0.7rem">{m.fileData.size ? `${Math.round(m.fileData.size / 1024)} KB` : 'File'}</Typography><Typography variant="caption" color="#65676b" fontSize="0.7rem">•</Typography><Typography variant="caption" color="#0084ff" fontSize="0.7rem" fontWeight={500}>📥 Download</Typography></Stack></Box></Paper>}
+                      {m.type === 'image' && (
+                        <Box sx={{ position: 'relative' }}>
+                          <Box sx={{ maxWidth: 200, borderRadius: '12px', overflow: 'hidden', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', '&:hover': { opacity: 0.9 } }} onClick={() => handleOpenViewer(m.imageUrl, null, m.id)}>
+                            <img src={m.imageUrl} alt="📷 Photo" style={{ width: '100%', display: 'block', maxHeight: 200, objectFit: 'cover' }} />
+                          </Box>
+                          <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#65676b', opacity: 0.8, fontSize: '0.7rem' }}>📷 Photo</Typography>
+                        </Box>
+                      )}
+                      {m.type === 'file' && m.fileData && (
+                        <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, cursor: 'pointer', bgcolor: 'white', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: '1px solid #e4e6eb', '&:hover': { bgcolor: '#f8fafc', borderColor: '#0084ff' } }} onClick={() => handleOpenViewer(null, m.fileData, m.id)}>
+                          <Box sx={{ width: 44, height: 44, borderRadius: '10px', bgcolor: '#e8f0fe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><AttachFile sx={{ color: '#0084ff', fontSize: 22 }} /></Box>
+                          <Box sx={{ flex: 1, minWidth: 0 }}><Typography variant="body2" fontWeight={600} fontSize="0.8rem" noWrap sx={{ color: '#1a1a1a' }}>{m.fileData.name || '📎 File'}</Typography><Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.3 }}><Typography variant="caption" color="#65676b" fontSize="0.7rem">{m.fileData.size ? `${Math.round(m.fileData.size / 1024)} KB` : 'File'}</Typography><Typography variant="caption" color="#65676b" fontSize="0.7rem"></Typography><Typography variant="caption" color="#0084ff" fontSize="0.7rem" fontWeight={500}></Typography></Stack></Box>
+                        </Paper>
+                      )}
                       {m.type === 'voice' && <Stack direction="row" spacing={1} alignItems="center" sx={{ px: 1.5, py: 0.8, borderRadius: '18px', bgcolor: (m.from === 'admin' || m.from === 'user') ? 'transparent' : '#ffffff', minWidth: 180, maxWidth: 260 }}><IconButton size="small" onClick={() => playVoice(m.voiceUrl, m.id)} sx={{ width: 32, height: 32, bgcolor: '#0084ff', color: 'white', '&:hover': { bgcolor: '#0066cc' }, flexShrink: 0 }}>{playingAudio === m.id ? <Pause sx={{ fontSize: 14 }} /> : <PlayArrow sx={{ fontSize: 16 }} />}</IconButton><Box sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 0.2 }}>{[0.8, 1, 0.6, 1.2, 0.7, 0.9, 1.1, 0.5, 0.9, 0.7, 1, 0.6, 0.8, 1, 0.5].map((h, i) => (<Box key={i} sx={{ width: 2, height: `${h * 16}px`, borderRadius: 1, bgcolor: '#0084ff', opacity: playingAudio === m.id ? 1 : 0.6 }} />))}</Box>{m.voiceDuration > 0 && <Typography variant="caption" sx={{ color: '#65676b', fontSize: '0.65rem', fontWeight: 500, minWidth: 28, textAlign: 'right' }}>0:{String(m.voiceDuration).padStart(2, '0')}</Typography>}</Stack>}
                     </>
                   )}
                 </Box>
-
                 {m.reaction && <Box sx={{ position: 'absolute', bottom: -14, right: m.from === 'user' ? 4 : 'auto', left: m.from !== 'user' ? 4 : 'auto', zIndex: 5 }}><Chip label={m.reaction} size="small" onClick={() => handleReaction(m.id, m.reaction)} sx={{ height: 22, fontSize: '0.8rem', bgcolor: 'white', boxShadow: '0 1px 4px rgba(0,0,0,0.15)', borderRadius: '12px', border: '1px solid #e4e6eb', cursor: 'pointer', '&:hover': { bgcolor: '#f0f2f5' } }} /></Box>}
-
                 <Typography variant="caption" sx={{ opacity: 0.7, fontSize: '0.6rem', mt: 0.2, mx: 0.5, display: 'block', textAlign: m.from === 'user' ? 'right' : 'left' }}>{m.from === 'admin' && m.adminName && `${m.adminName} • `}{m.time}</Typography>
               </Box>
             </Box>
@@ -425,6 +415,8 @@ const ChatSupport = () => {
       <MenuItem onClick={() => handleDeleteMessage(selectedMessage?.id)} sx={{ color: '#ef4444' }}><Delete sx={{ mr: 1, fontSize: 18 }} /> Delete</MenuItem>
       <MenuItem onClick={() => { if (selectedMessage?.type === 'text') handleCopyText(selectedMessage?.text); else if (selectedMessage?.type === 'image') handleCopyText(selectedMessage?.imageUrl); else if (selectedMessage?.type === 'file' && selectedMessage?.fileData) handleCopyText(selectedMessage?.fileData.url); else if (selectedMessage?.type === 'voice' && selectedMessage?.voiceUrl) handleCopyText(selectedMessage?.voiceUrl); }}><ContentCopy sx={{ mr: 1, fontSize: 18 }} /> Copy</MenuItem>
     </Menu>
+
+    <FileViewer open={viewer.open} imageUrl={viewer.imageUrl} fileData={viewer.fileData} messageId={viewer.messageId} onClose={handleCloseViewer} />
   </>);
 };
 

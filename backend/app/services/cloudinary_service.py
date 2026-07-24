@@ -1,10 +1,10 @@
-# app/services/cloudinary_service.py
 import cloudinary
 import cloudinary.uploader
 import cloudinary.api
 from app.core.config import settings
 from typing import Optional
 import os
+import time
 
 # Configure Cloudinary
 cloudinary.config(
@@ -15,27 +15,17 @@ cloudinary.config(
 )
 
 async def upload_image(file, folder: str = "products", public_id: Optional[str] = None):
-    """
-    Upload image to Cloudinary (for product images, avatars, chat images)
-    
-    Args:
-        file: UploadFile from FastAPI
-        folder: Folder name in Cloudinary (products, categories, payments, chat/images)
-        public_id: Optional custom public ID
-    
-    Returns:
-        dict: Upload result with url and public_id
-    """
+    """Upload image to Cloudinary"""
     try:
         contents = await file.read()
-        file_extension = os.path.splitext(file.filename)[1] if file.filename else '.jpg'
         
         upload_options = {
             "folder": f"teleshop/{folder}",
             "resource_type": "image",
             "quality": "auto",
             "fetch_format": "auto",
-            "format": file_extension.replace('.', ''),
+            "type": "upload",
+            "access_mode": "public",
         }
         
         if public_id:
@@ -43,13 +33,8 @@ async def upload_image(file, folder: str = "products", public_id: Optional[str] 
         
         result = cloudinary.uploader.upload(contents, **upload_options)
         
-        secure_url = cloudinary.CloudinaryImage(result['public_id']).build_url(
-            format=result.get('format', 'jpg'),
-            secure=True
-        )
-        
         return {
-            "url": secure_url,
+            "url": result["secure_url"],
             "public_id": result["public_id"],
             "width": result.get("width"),
             "height": result.get("height"),
@@ -62,28 +47,30 @@ async def upload_image(file, folder: str = "products", public_id: Optional[str] 
 
 async def upload_voice(file, folder: str = "chat/voice", public_id: Optional[str] = None):
     """
-    Upload voice/audio file to Cloudinary as MP3
+    Upload voice/audio file to Cloudinary - forces MP3 format
     """
     try:
         contents = await file.read()
         
-        # Generate unique filename with .mp3 extension
-        import time
-        filename = f"voice_{int(time.time())}.mp3"
+        filename = f"voice_{int(time.time())}"
         
         upload_options = {
             "folder": f"teleshop/{folder}",
             "resource_type": "video",
-            "format": "mp3",
-            "public_id": public_id or filename.replace('.mp3', ''),
+            "format": "mp3",              
+            "audio_codec": "mp3",         
+            "type": "upload",
+            "access_mode": "public",
+            "public_id": public_id or filename,
             "overwrite": True,
         }
         
         result = cloudinary.uploader.upload(contents, **upload_options)
         
-        # Force .mp3 in the URL
+        # Build URL with .mp3 extension
         secure_url = result["secure_url"]
-        if not secure_url.endswith('.mp3'):
+        # Replace any extension with .mp3
+        if '.' in secure_url.split('/')[-1]:
             secure_url = secure_url.rsplit('.', 1)[0] + '.mp3'
         
         return {
@@ -93,44 +80,28 @@ async def upload_voice(file, folder: str = "chat/voice", public_id: Optional[str
         }
     except Exception as e:
         print(f"Cloudinary voice upload error: {e}")
-        
-        # Fallback: save as MP3 locally
-        try:
-            import os
-            os.makedirs("uploads/chat/voice", exist_ok=True)
-            filename = f"voice_{public_id or 'audio'}_{int(__import__('time').time())}.mp3"
-            filepath = f"uploads/chat/voice/{filename}"
-            with open(filepath, "wb") as f:
-                f.write(contents)
-            
-            return {
-                "url": f"/uploads/chat/voice/{filename}",
-                "public_id": filename,
-                "format": "mp3",
-            }
-        except Exception as fallback_error:
-            print(f"Fallback error: {fallback_error}")
-            raise e
+        raise
 
 
 async def upload_file_attachment(file, folder: str = "chat/files", public_id: Optional[str] = None):
-    """
-    Upload any file type to Cloudinary (PDF, DOC, ZIP, etc.)
-    
-    Args:
-        file: UploadFile from FastAPI
-        folder: Folder name in Cloudinary
-        public_id: Optional custom public ID
-    
-    Returns:
-        dict: Upload result with url and public_id
-    """
+    """Upload any file type to Cloudinary"""
     try:
         contents = await file.read()
+        file_extension = os.path.splitext(file.filename)[1].lower() if file.filename else ''
+        
+        # Determine resource type
+        if file_extension in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp']:
+            resource_type = "image"
+        elif file_extension in ['.mp4', '.mov', '.avi', '.webm', '.mp3', '.wav', '.ogg', '.m4a']:
+            resource_type = "video"
+        else:
+            resource_type = "raw"
         
         upload_options = {
             "folder": f"teleshop/{folder}",
-            "resource_type": "auto",  # Auto-detect: image, video, or raw
+            "resource_type": resource_type,
+            "type": "upload",
+            "access_mode": "public",
             "use_filename": True,
             "unique_filename": True,
         }

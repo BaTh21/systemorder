@@ -1,9 +1,18 @@
 # app/routers/chat.py
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+import unicodedata
+
+from starlette.responses import RedirectResponse as StarletteRedirect
+
+import cloudinary
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, File, Form
+from fastapi.responses import RedirectResponse, StreamingResponse
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
 from pydantic import BaseModel
 from typing import Optional, List
+
+import re
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.user import User
@@ -12,9 +21,38 @@ from app.services.cloudinary_service import upload_image, upload_voice, upload_f
 from app.services.websocket_manager import manager
 import uuid
 import json
-
+from cloudinary.utils import cloudinary_url
 router = APIRouter(prefix="/chat", tags=["chat"])
 
+def sanitize_filename(filename):
+    """Remove non-ASCII characters from filename"""
+    # Convert to ASCII, ignore non-convertible characters
+    filename = unicodedata.normalize('NFKD', filename).encode('ascii', 'ignore').decode('ascii')
+    # Remove any character that isn't alphanumeric, dot, dash, or underscore
+    filename = re.sub(r'[^a-zA-Z0-9._-]', '_', filename)
+    # Ensure it has an extension
+    if '.' not in filename:
+        filename = filename + '.pdf'
+    return filename
+
+def extract_public_id_from_url(url):
+    """Extract public_id and resource_type from Cloudinary URL"""
+    import re as regex  # Use alias to avoid conflicts
+    
+    if not url:
+        return None, None
+    
+    # URL format: https://res.cloudinary.com/CLOUD_NAME/RESOURCE_TYPE/upload/vVERSION/folder/filename.ext
+    pattern = r'cloudinary\.com/(\w+)/(\w+)/upload/(?:v\d+/)?(.+?)(?:\.\w+)?$'
+    match = regex.search(pattern, url)
+    
+    if match:
+        resource_type = match.group(2)
+        public_id_with_ext = match.group(3)
+        public_id = regex.sub(r'^v\d+/', '', public_id_with_ext)
+        return public_id, resource_type
+    
+    return None, None
 class ChatRequest(BaseModel):
     message: str
     sender_name: str = "Customer"
@@ -185,10 +223,12 @@ async def upload_chat_file(
 ):
     """Upload file to chat"""
     result = await upload_file_attachment(file, folder="chat/files")
+    original_name = file.filename if file.filename else "file"
+    safe_name = sanitize_filename(original_name)
     
     file_info = {
         "url": result["url"], 
-        "name": file.filename, 
+        "name": safe_name, 
         "size": file.size if hasattr(file, 'size') else 0
     }
     
@@ -394,6 +434,7 @@ async def get_chat_sessions(
                 "sender_name": "Customer",
                 "sender_email": None,
                 "last_message": msg.message[:100] if msg.message else "",
+                "message_type": msg.message_type or "text",  
                 "unread": 0,
                 "created_at": str(msg.created_at),
                 "user_id": msg.user_id,
@@ -664,3 +705,68 @@ async def delete_chat_session(
         "session_id": session_id,
         "messages_deleted": len(messages)
     }
+
+@router.get("/download/{message_id}")
+async def download_file(
+    message_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Download file - serves directly for 200 OK response"""
+    result = await db.execute(
+        select(ChatMessage).where(ChatMessage.id == message_id)
+    )
+    msg = result.scalars().first()
+    
+    if not msg:
+        raise HTTPException(404, "Message not found")
+    
+    file_url = None
+    filename = f"file_{message_id}.pdf"
+    
+    if msg.message_type == "image":
+        file_url = msg.message
+        filename = f"image_{message_id}.jpg"
+    elif msg.message_type == "file":
+        try:
+            file_data = json.loads(msg.message)
+            file_url = file_data.get("url")
+        except:
+            file_url = msg.message
+        filename = f"file_{message_id}.pdf"
+    elif msg.message_type == "voice":
+        try:
+            voice_data = json.loads(msg.message)
+            file_url = voice_data.get("url")
+        except:
+            file_url = msg.message
+        filename = f"voice_{message_id}.mp3"
+    
+    if not file_url:
+        raise HTTPException(404, "File URL not found")
+    
+    # Fetch the file from Cloudinary and serve directly
+    try:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            response = await client.get(file_url)
+            
+            if response.status_code == 200:
+                import re
+                safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '', filename)
+                if not safe_filename:
+                    safe_filename = f"file_{message_id}.pdf"
+                
+                return Response(
+                    content=response.content,
+                    media_type="application/octet-stream",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{safe_filename}"',
+                        "Content-Length": str(len(response.content)),
+                    }
+                )
+    except Exception as e:
+        print(f"Fetch error: {e}")
+    
+    # Fallback to redirect
+    if "cloudinary" in file_url and "/upload/" in file_url:
+        file_url = file_url.replace("/upload/", "/upload/fl_attachment/")
+    return StarletteRedirect(url=file_url, status_code=302)
