@@ -9,8 +9,12 @@ from app.models.user import User
 from app.models.order import Order, OrderStatus
 from app.core.config import settings
 import httpx
+import secrets
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
+
+temp_tokens = {}
 
 TELEGRAM_API = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}"
 
@@ -121,12 +125,23 @@ async def disconnect_telegram(
     
     return {"message": "Telegram disconnected successfully"}
 
+@router.get("/status")
+async def telegram_status(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    user = await db.get(User, current_user.id)
+    return {
+        "connected": bool(user.telegram_chat_id),
+        "chat_id": user.telegram_chat_id if user.telegram_chat_id else None
+    }
+
 @router.post("/webhook")
 async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     """Handle incoming Telegram messages"""
     try:
         data = await request.json()
-        print(f"📩 Telegram webhook received: {data}")
+        print(f"📩 FULL WEBHOOK DATA: {data}")
         
         if "message" in data:
             message = data["message"]
@@ -135,53 +150,111 @@ async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db))
             user_first_name = message["from"].get("first_name", "User")
             
             print(f"   From: {user_first_name} (Chat ID: {chat_id})")
-            print(f"   Text: {text}")
+            print(f"   Full Text: '{text}'")
+            print(f"   Text Length: {len(text)}")
             
-            if text == "/start":
-                # Always reply with Chat ID
-                reply_text = f"""
-👋 <b>Welcome to TeleShop Bot, {user_first_name}!</b>
-
-📱 <b>Your Chat ID:</b> <code>{chat_id}</code>
-
-<b>🔗 How to connect:</b>
-1. Copy your Chat ID above
-2. Go to TeleShop website → Profile → Telegram
-3. Paste this Chat ID and click Connect
-
-<b>📋 Available Commands:</b>
-/orders - View your recent orders
-/payment - Payment & bank details
-/status - Order status guide
-/help - Get help
-/chatid - Show your Chat ID again
-
-<i>Save this Chat ID - you'll need it to connect!</i>
-"""
-                await send_telegram_message(chat_id, reply_text)
-                print(f"   ✅ Sent welcome message with Chat ID")
-            
-            elif text == "/chatid":
-                await send_telegram_message(
-                    chat_id,
-                    f"📱 <b>Your Chat ID:</b> <code>{chat_id}</code>\n\nUse this to connect your TeleShop account."
-                )
-            
-            elif text == "/orders":
-                result = await db.execute(
-                    select(User).where(User.telegram_chat_id == chat_id)
-                )
-                user = result.scalars().first()
+            # =============================================
+            # CHECK FOR TOKEN IN /start COMMAND
+            # Token comes after /start with a space
+            # Telegram sends: "/start abc123token"
+            # =============================================
+            if text and text.startswith("/start"):
+                # Split by space
+                parts = text.split(" ", 1)
+                print(f"   Parts: {parts}")
                 
-                if user:
-                    result = await db.execute(
-                        select(Order)
-                        .where(Order.user_id == user.id)
-                        .order_by(Order.created_at.desc())
-                        .limit(5)
-                    )
-                    orders = result.scalars().all()
+                if len(parts) > 1:
+                    token = parts[1].strip()
+                    print(f"   🔑 Token found: {token}")
+                    print(f"   Active tokens: {list(temp_tokens.keys())}")
                     
+                    if token in temp_tokens:
+                        token_data = temp_tokens[token]
+                        print(f"   Token data: {token_data}")
+                        
+                        # Check expiration
+                        if datetime.utcnow() < token_data["expires"]:
+                            user_id = token_data["user_id"]
+                            user = await db.get(User, user_id)
+                            
+                            if user:
+                                # SAVE THE CONNECTION
+                                user.telegram_chat_id = chat_id
+                                await db.commit()
+                                
+                                # Remove used token
+                                del temp_tokens[token]
+                                
+                                # Send success - NO CHAT ID!
+                                await send_telegram_message(
+                                    chat_id,
+                                    f"✅ <b>Connected Successfully!</b>\n\n"
+                                    f"Welcome <b>{user.full_name}</b>! 🎉\n\n"
+                                    f"Your account is now linked to Telegram.\n"
+                                    f"You'll receive order updates automatically.\n\n"
+                                    f"<b>📋 Quick Commands:</b>\n"
+                                    f"/orders - View your orders\n"
+                                    f"/help - Get help"
+                                )
+                                print(f"   ✅ AUTO-CONNECTED user {user_id}")
+                                return {"ok": True}
+                            else:
+                                print(f"   ❌ User not found: {user_id}")
+                        else:
+                            print(f"   ❌ Token expired")
+                            del temp_tokens[token]
+                    
+                    # Token invalid or expired
+                    await send_telegram_message(
+                        chat_id,
+                        "⚠️ Connection link expired or invalid.\n"
+                        "Please go back to the website and try again."
+                    )
+                    return {"ok": True}
+                
+                # No token - normal /start
+                else:
+                    print(f"   ℹ️ Normal /start (no token)")
+                    
+                    # Check if already connected
+                    result = await db.execute(
+                        select(User).where(User.telegram_chat_id == chat_id)
+                    )
+                    existing_user = result.scalars().first()
+                    
+                    if existing_user:
+                        await send_telegram_message(
+                            chat_id,
+                            f"👋 <b>Welcome back, {existing_user.full_name}!</b>\n\n"
+                            f"✅ Your account is connected.\n\n"
+                            f"/orders - View your orders\n"
+                            f"/help - Get help"
+                        )
+                    else:
+                        await send_telegram_message(
+                            chat_id,
+                            f"👋 <b>Welcome to TeleShop Bot, {user_first_name}!</b>\n\n"
+                            f"📱 <b>Your Chat ID:</b> <code>{chat_id}</code>\n\n"
+                            f"To connect:\n"
+                            f"1. Go to Profile → Telegram on website\n"
+                            f"2. Click Auto-Connect or enter this Chat ID\n\n"
+                            f"/help - See all commands"
+                        )
+                    return {"ok": True}
+            
+            # =============================================
+            # OTHER COMMANDS
+            # =============================================
+            if text == "/chatid":
+                await send_telegram_message(chat_id, f"📱 <b>Your Chat ID:</b> <code>{chat_id}</code>")
+                return {"ok": True}
+            
+            if text == "/orders":
+                result = await db.execute(select(User).where(User.telegram_chat_id == chat_id))
+                user = result.scalars().first()
+                if user:
+                    result = await db.execute(select(Order).where(Order.user_id == user.id).order_by(Order.created_at.desc()).limit(5))
+                    orders = result.scalars().all()
                     if orders:
                         orders_text = "<b>📋 Your Recent Orders:</b>\n\n"
                         for order in orders:
@@ -192,62 +265,31 @@ async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db))
                     else:
                         await send_telegram_message(chat_id, "📭 No orders yet!")
                 else:
-                    await send_telegram_message(chat_id, "⚠️ Account not connected. Use /start to get your Chat ID.")
+                    await send_telegram_message(chat_id, "⚠️ Not connected. Send /start to connect.")
+                return {"ok": True}
             
-            elif text == "/payment":
-                payment_text = f"""
-💰 <b>Payment Information</b>
-
-🏦 <b>Bank:</b> {settings.BANK_NAME}
-👤 <b>Account:</b> {settings.BANK_ACCOUNT_NAME}
-🔢 <b>Number:</b> <code>{settings.BANK_ACCOUNT_NUMBER}</code>
-
-<b>Steps:</b>
-1. Transfer exact amount
-2. Upload screenshot on website
-3. Order will be confirmed
-
-/orders - View your orders
-"""
-                await send_telegram_message(chat_id, payment_text)
+            if text == "/help":
+                await send_telegram_message(chat_id, "❓ <b>Help</b>\n\n/start - Connect\n/orders - Orders\n/help - This message")
+                return {"ok": True}
             
-            elif text == "/help":
-                help_text = """
-❓ <b>TeleShop Bot Help</b>
-
-/start - Welcome & Chat ID
-/chatid - Show your Chat ID
-/orders - Your recent orders
-/payment - Payment info
-/status - Order status guide
-/help - This help message
-
-📧 <b>Support:</b> support@teleshop.com
-"""
-                await send_telegram_message(chat_id, help_text)
-            
-            elif text == "/status":
-                status_text = """
-📊 <b>Order Status Guide:</b>
-
-⏳ Pending - Order received
-✅ Confirmed - Order approved
-💰 Waiting Payment - Please pay
-💳 Paid - Processing
-🚚 Shipping - On the way
-📦 Completed - Delivered
-❌ Cancelled - Cancelled
-"""
-                await send_telegram_message(chat_id, status_text)
-            
-            else:
-                await send_telegram_message(
-                    chat_id,
-                    f"Send /start to get your Chat ID and connect your account!\n\n/help - See all commands"
-                )
+            # Default
+            await send_telegram_message(chat_id, "Send /start to connect!\n/help - Commands")
         
         return {"ok": True}
         
     except Exception as e:
         print(f"❌ Webhook error: {e}")
+        import traceback
+        traceback.print_exc()
         return {"ok": False, "error": str(e)}
+    
+@router.get("/generate-token")
+async def generate_connect_token(
+    current_user: User = Depends(get_current_user),
+):
+    token = secrets.token_urlsafe(16)
+    temp_tokens[token] = {
+        "user_id": current_user.id,
+        "expires": datetime.utcnow() + timedelta(minutes=30)
+    }
+    return {"token": token}

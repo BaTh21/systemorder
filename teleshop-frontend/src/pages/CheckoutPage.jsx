@@ -1,42 +1,16 @@
-// src/pages/CheckoutPage.jsx
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Container,
-  Typography,
-  TextField,
-  Button,
-  Box,
-  Stepper,
-  Step,
-  StepLabel,
-  Paper,
-  Stack,
-  Divider,
-  Chip,
-  Avatar,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Select,
-  FormControl,
-  InputLabel,
-  MenuItem,
+  Container, Typography, TextField, Button, Box, Stepper, Step, StepLabel,
+  Paper, Stack, Divider, Chip, Avatar, Dialog, DialogTitle, DialogContent,
+  DialogActions, Select, FormControl, InputLabel, MenuItem,
 } from '@mui/material';
 import {
-  Person,
-  Phone,
-  Home,
-  ShoppingCart,
-  CheckCircle,
-  LocalShipping,
-  Payment,
-  Shield,
-  WarningAmber,
-  LocationOn,
+  Person, Phone, Home, ShoppingCart, CheckCircle, LocalShipping,
+  Payment, Shield, WarningAmber, LocationOn,
 } from '@mui/icons-material';
 import { useCart } from '../contexts/CartContext';
+import TelegramRedirectModal from '../components/telegram/TelegramRedirectModal';
 import api from '../api/axios';
 
 const steps = ['Shipping', 'Review', 'Confirm'];
@@ -46,22 +20,16 @@ const CheckoutPage = () => {
   const { cartItems, totalPrice, clearCart } = useCart();
   const [activeStep, setActiveStep] = useState(0);
   const [shippingAddress, setShippingAddress] = useState({
-    full_name: '',
-    address: '',
-    phone: '',
-    location: 'phnom_penh',
+    full_name: '', address: '', phone: '', location: 'phnom_penh',
   });
   const [notes, setNotes] = useState('');
   const [placing, setPlacing] = useState(false);
   const [alertDialog, setAlertDialog] = useState({ open: false, message: '' });
+  const [showTelegramModal, setShowTelegramModal] = useState(false);
 
-  // Calculate shipping fee based on location
-  const getShippingFee = () => {
-    return shippingAddress.location === 'phnom_penh' ? 2.00 : 3.00;
-  };
-
+  const getShippingFee = () => shippingAddress.location === 'phnom_penh' ? 2.00 : 3.00;
   const shippingFee = getShippingFee();
-  const grandTotal = totalPrice + shippingFee; // No service fee
+  const grandTotal = totalPrice + shippingFee;
 
   const handleAddressChange = (e) => {
     setShippingAddress({ ...shippingAddress, [e.target.name]: e.target.value });
@@ -81,15 +49,42 @@ const CheckoutPage = () => {
         payment_method: 'bank_transfer',
         shipping_fee: shippingFee,
       };
+      
       await api.post('/orders', orderData);
       await clearCart();
+      setPlacing(false);
+      
+      // Check if Telegram is connected - if not, show modal
+      try {
+        const telegramRes = await api.get('/telegram/status');
+        if (!telegramRes.data.connected) {
+          setShowTelegramModal(true);
+          return; // Stay on checkout page, show modal
+        }
+      } catch (e) {
+        console.error('Telegram check failed:', e);
+      }
+      
+      // Already connected - go to orders
       navigate('/orders');
     } catch (error) {
       console.error('Error placing order:', error);
-      setAlertDialog({ open: true, message: 'Failed to place order. Please try again.' });
-    } finally {
+      setAlertDialog({ 
+        open: true, 
+        message: error.response?.data?.detail || 'Failed to place order. Please try again.' 
+      });
       setPlacing(false);
     }
+  };
+
+  const handleTelegramSuccess = () => {
+    setShowTelegramModal(false);
+    navigate('/orders');
+  };
+
+  const handleTelegramClose = () => {
+    setShowTelegramModal(false);
+    navigate('/orders');
   };
 
   const handleNext = () => {
@@ -110,7 +105,7 @@ const CheckoutPage = () => {
 
   const handleBack = () => { setActiveStep(activeStep - 1); };
 
-  if (cartItems.length === 0) {
+  if (cartItems.length === 0 && !showTelegramModal) {
     return (
       <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Container maxWidth="sm" sx={{ textAlign: 'center', py: 8 }}>
@@ -125,6 +120,17 @@ const CheckoutPage = () => {
           </Button>
         </Container>
       </Box>
+    );
+  }
+
+  // If modal is showing, hide checkout content
+  if (showTelegramModal) {
+    return (
+      <TelegramRedirectModal 
+        open={showTelegramModal} 
+        onClose={handleTelegramClose}
+        onSuccess={handleTelegramSuccess}
+      />
     );
   }
 
@@ -153,15 +159,7 @@ const CheckoutPage = () => {
               <Step key={step.label} completed={activeStep > index}>
                 <StepLabel
                   StepIconComponent={() => (
-                    <Avatar
-                      sx={{
-                        width: 36,
-                        height: 36,
-                        bgcolor: activeStep >= index ? '#2563eb' : '#e2e8f0',
-                        color: activeStep >= index ? 'white' : '#94a3b8',
-                        fontSize: '1rem',
-                      }}
-                    >
+                    <Avatar sx={{ width: 36, height: 36, bgcolor: activeStep >= index ? '#2563eb' : '#e2e8f0', color: activeStep >= index ? 'white' : '#94a3b8', fontSize: '1rem' }}>
                       {activeStep > index ? <CheckCircle sx={{ fontSize: 20 }} /> : step.icon}
                     </Avatar>
                   )}
@@ -177,14 +175,8 @@ const CheckoutPage = () => {
 
         {/* Content Card */}
         <Box sx={{ maxWidth: 800, mx: 'auto' }}>
-          <Paper elevation={0} sx={{ 
-            borderRadius: 4, 
-            border: '1px solid #e2e8f0', 
-            bgcolor: 'white',
-            overflow: 'hidden',
-          }}>
+          <Paper elevation={0} sx={{ borderRadius: 4, border: '1px solid #e2e8f0', bgcolor: 'white', overflow: 'hidden' }}>
             
-            {/* Step Indicator */}
             <Box sx={{ bgcolor: '#2563eb', color: 'white', px: 3, py: 2 }}>
               <Typography variant="subtitle2" fontWeight={700}>
                 {activeStep === 0 && '📦 Shipping Information'}
@@ -211,14 +203,9 @@ const CheckoutPage = () => {
                     }}
                     sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#fafafa', '& fieldset': { borderColor: '#e2e8f0' }, '&:hover fieldset': { borderColor: '#2563eb' } } }} />
                   
-                  {/* Location Selector */}
                   <FormControl fullWidth size="small">
                     <InputLabel>Delivery Location</InputLabel>
-                    <Select
-                      name="location"
-                      value={shippingAddress.location}
-                      onChange={handleAddressChange}
-                      label="Delivery Location"
+                    <Select name="location" value={shippingAddress.location} onChange={handleAddressChange} label="Delivery Location"
                       startAdornment={
                         <Box sx={{ mr: 1.5, display: 'flex', alignItems: 'center' }}>
                           <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -226,20 +213,9 @@ const CheckoutPage = () => {
                           </Box>
                         </Box>
                       }
-                      sx={{ borderRadius: 2, bgcolor: '#fafafa' }}
-                    >
-                      <MenuItem value="phnom_penh">
-                        <Stack direction="row" justifyContent="space-between" width="100%">
-                          <Typography variant="body2">🏙️ Phnom Penh</Typography>
-                          <Chip label="$2.00" size="small" color="primary" variant="outlined" sx={{ height: 22, fontSize: '0.7rem' }} />
-                        </Stack>
-                      </MenuItem>
-                      <MenuItem value="province">
-                        <Stack direction="row" justifyContent="space-between" width="100%">
-                          <Typography variant="body2">🏡 Province</Typography>
-                          <Chip label="$3.00" size="small" color="primary" variant="outlined" sx={{ height: 22, fontSize: '0.7rem' }} />
-                        </Stack>
-                      </MenuItem>
+                      sx={{ borderRadius: 2, bgcolor: '#fafafa' }}>
+                      <MenuItem value="phnom_penh"><Stack direction="row" justifyContent="space-between" width="100%"><Typography variant="body2">🏙️ Phnom Penh</Typography><Chip label="$2.00" size="small" color="primary" variant="outlined" sx={{ height: 22, fontSize: '0.7rem' }} /></Stack></MenuItem>
+                      <MenuItem value="province"><Stack direction="row" justifyContent="space-between" width="100%"><Typography variant="body2">🏡 Province</Typography><Chip label="$3.00" size="small" color="primary" variant="outlined" sx={{ height: 22, fontSize: '0.7rem' }} /></Stack></MenuItem>
                     </Select>
                   </FormControl>
 
@@ -285,12 +261,7 @@ const CheckoutPage = () => {
                       <Typography variant="body2" fontWeight={600}>{shippingAddress.full_name}</Typography>
                       <Typography variant="body2" color="#475569">{shippingAddress.address}</Typography>
                       <Typography variant="body2" color="#475569">{shippingAddress.phone}</Typography>
-                      <Chip 
-                        label={shippingAddress.location === 'phnom_penh' ? '🏙️ Phnom Penh' : '🏡 Province'} 
-                        size="small" 
-                        variant="outlined" 
-                        sx={{ mt: 0.5, width: 'fit-content' }}
-                      />
+                      <Chip label={shippingAddress.location === 'phnom_penh' ? '🏙️ Phnom Penh' : '🏡 Province'} size="small" variant="outlined" sx={{ mt: 0.5, width: 'fit-content' }} />
                     </Stack>
                   </Paper>
 
@@ -301,40 +272,23 @@ const CheckoutPage = () => {
                         sx={{ p: 2, bgcolor: '#f8fafc', borderRadius: 2, border: '1px solid #e2e8f0' }}>
                         <Box>
                           <Typography variant="body2" fontWeight={600}>{item.product_name}</Typography>
-                          <Typography variant="caption" color="#94a3b8">
-                            Qty: {item.quantity} × ${Number(item.unit_price || 0).toFixed(2)}
-                          </Typography>
+                          <Typography variant="caption" color="#94a3b8">Qty: {item.quantity} × ${Number(item.unit_price || 0).toFixed(2)}</Typography>
                         </Box>
                         <Chip label={`$${Number(item.total_price || 0).toFixed(2)}`} color="success" size="small" variant="outlined" sx={{ fontWeight: 600 }} />
                       </Stack>
                     ))}
                   </Stack>
 
-                  {/* Totals - No Service Fee */}
                   <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, borderColor: '#e2e8f0', bgcolor: '#f8fafc' }}>
                     <Stack spacing={1.5}>
-                      <Stack direction="row" justifyContent="space-between">
-                        <Typography variant="body2" color="#64748b">Subtotal</Typography>
-                        <Typography variant="body2" fontWeight={500}>${totalPrice.toFixed(2)}</Typography>
-                      </Stack>
-                      <Stack direction="row" justifyContent="space-between">
-                        <Typography variant="body2" color="#64748b">
-                          Shipping ({shippingAddress.location === 'phnom_penh' ? 'Phnom Penh' : 'Province'})
-                        </Typography>
-                        <Typography variant="body2" fontWeight={500}>${shippingFee.toFixed(2)}</Typography>
-                      </Stack>
+                      <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="#64748b">Subtotal</Typography><Typography variant="body2" fontWeight={500}>${totalPrice.toFixed(2)}</Typography></Stack>
+                      <Stack direction="row" justifyContent="space-between"><Typography variant="body2" color="#64748b">Shipping ({shippingAddress.location === 'phnom_penh' ? 'Phnom Penh' : 'Province'})</Typography><Typography variant="body2" fontWeight={500}>${shippingFee.toFixed(2)}</Typography></Stack>
                       <Divider />
-                      <Stack direction="row" justifyContent="space-between">
-                        <Typography fontWeight={800} color="#0f172a" fontSize="1.1rem">Total</Typography>
-                        <Typography fontWeight={800} color="#059669" fontSize="1.2rem">
-                          ${grandTotal.toFixed(2)}
-                        </Typography>
-                      </Stack>
+                      <Stack direction="row" justifyContent="space-between"><Typography fontWeight={800} color="#0f172a" fontSize="1.1rem">Total</Typography><Typography fontWeight={800} color="#059669" fontSize="1.2rem">${grandTotal.toFixed(2)}</Typography></Stack>
                     </Stack>
                   </Paper>
 
-                  <TextField fullWidth label="Order Notes (Optional)" value={notes}
-                    onChange={(e) => setNotes(e.target.value)} multiline rows={2}
+                  <TextField fullWidth label="Order Notes (Optional)" value={notes} onChange={(e) => setNotes(e.target.value)} multiline rows={2}
                     sx={{ mt: 3, '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#fafafa' } }} />
                 </Box>
               )}
@@ -348,35 +302,27 @@ const CheckoutPage = () => {
                   <Typography variant="h5" fontWeight={700} color="#0f172a" gutterBottom>Ready to Order</Typography>
                   <Typography variant="body2" color="#64748b" mb={3}>Your order will be processed immediately</Typography>
                   <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, borderColor: '#bbf7d0', bgcolor: '#f0fdf4', display: 'inline-block', mb: 2 }}>
-                    <Typography variant="h3" fontWeight={800} color="#059669">
-                      ${grandTotal.toFixed(2)}
-                    </Typography>
+                    <Typography variant="h3" fontWeight={800} color="#059669">${grandTotal.toFixed(2)}</Typography>
                   </Paper>
-                  <Typography variant="caption" color="#94a3b8" display="block">
-                    Payment: Bank Transfer • {cartItems.length} item(s) • Shipping: ${shippingFee.toFixed(2)}
-                  </Typography>
+                  <Typography variant="caption" color="#94a3b8" display="block">Payment: Bank Transfer • {cartItems.length} item(s) • Shipping: ${shippingFee.toFixed(2)}</Typography>
                 </Box>
               )}
 
               {/* Navigation Buttons */}
-              <Stack direction="row" justifyContent="flex-end" alignItems="center" 
-                sx={{ mt: activeStep === 0 ? 5 : 3, pt: 3, borderTop: '1px solid #e2e8f0', gap: 1.5 }}>
-                
+              <Stack direction="row" justifyContent="flex-end" alignItems="center" sx={{ mt: activeStep === 0 ? 5 : 3, pt: 3, borderTop: '1px solid #e2e8f0', gap: 1.5 }}>
                 {activeStep > 0 && (
-                  <Button onClick={handleBack} variant="outlined"
-                    sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 500, px: 3, py: 1, borderColor: '#e2e8f0', color: '#64748b', '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' } }}>
+                  <Button onClick={handleBack} variant="outlined" sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 500, px: 3, py: 1, borderColor: '#e2e8f0', color: '#64748b', '&:hover': { borderColor: '#94a3b8', bgcolor: '#f8fafc' } }}>
                     ← Back
                   </Button>
                 )}
-
                 {activeStep === steps.length - 1 ? (
                   <Button variant="contained" onClick={handlePlaceOrder} disabled={placing}
-                    sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600, px: 5, py: 1.2, bgcolor: '#059669', fontSize: '1rem', boxShadow: '0 4px 12px rgba(5, 150, 105, 0.3)', '&:hover': { bgcolor: '#047857', boxShadow: '0 6px 16px rgba(5, 150, 105, 0.4)' }, '&:disabled': { bgcolor: '#a7f3d0' } }}>
+                    sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600, px: 5, py: 1.2, bgcolor: '#059669', fontSize: '1rem', boxShadow: '0 4px 12px rgba(5, 150, 105, 0.3)', '&:hover': { bgcolor: '#047857' }, '&:disabled': { bgcolor: '#a7f3d0' } }}>
                     {placing ? 'Placing Order...' : '✓ Place Order'}
                   </Button>
                 ) : (
                   <Button variant="contained" onClick={handleNext}
-                    sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600, px: 4, py: 1, bgcolor: '#2563eb', fontSize: '0.95rem', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)', '&:hover': { bgcolor: '#1d4ed8', boxShadow: '0 6px 16px rgba(37, 99, 235, 0.4)' } }}>
+                    sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600, px: 4, py: 1, bgcolor: '#2563eb', fontSize: '0.95rem', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)', '&:hover': { bgcolor: '#1d4ed8' } }}>
                     Next →
                   </Button>
                 )}
@@ -394,14 +340,16 @@ const CheckoutPage = () => {
           </Box>
           <Typography variant="h6" fontWeight={700} color="#0f172a">Incomplete Form</Typography>
         </DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="#475569" sx={{ whiteSpace: 'pre-line' }}>{alertDialog.message}</Typography>
-        </DialogContent>
-        <DialogActions sx={{ p: 2.5, pt: 0 }}>
-          <Button variant="contained" onClick={() => setAlertDialog({ open: false, message: '' })}
-            sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600, px: 4 }}>OK</Button>
-        </DialogActions>
+        <DialogContent><Typography variant="body2" color="#475569" sx={{ whiteSpace: 'pre-line' }}>{alertDialog.message}</Typography></DialogContent>
+        <DialogActions sx={{ p: 2.5, pt: 0 }}><Button variant="contained" onClick={() => setAlertDialog({ open: false, message: '' })} sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600, px: 4 }}>OK</Button></DialogActions>
       </Dialog>
+
+      {/* Telegram Modal - Appears after order placed */}
+      <TelegramRedirectModal 
+        open={showTelegramModal} 
+        onClose={handleTelegramClose}
+        onSuccess={handleTelegramSuccess}
+      />
     </Box>
   );
 };
