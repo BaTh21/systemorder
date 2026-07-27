@@ -4,16 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import {
   Container,
   Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
+  Box,
   Paper,
   Chip,
   CircularProgress,
-  Box,
   Button,
   TextField,
   InputAdornment,
@@ -28,6 +22,8 @@ import {
   Tooltip,
   Snackbar,
   Alert,
+  useTheme,
+  useMediaQuery,
 } from '@mui/material';
 import {
   Search,
@@ -44,20 +40,13 @@ import {
   ArrowBack,
 } from '@mui/icons-material';
 import api from '../../api/axios';
-
-const statusColors = {
-  pending: 'default',
-  confirmed: 'primary',
-  waiting_payment: 'warning',
-  paid: 'info',
-  purchasing: 'info',
-  shipping: 'primary',
-  completed: 'success',
-  cancelled: 'error',
-};
+import ResponsiveTable from '../../components/ResponsiveTable';
 
 const AdminCustomers = () => {
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -171,14 +160,110 @@ const AdminCustomers = () => {
   const formatDate = (dateStr) => {
     if (!dateStr) return 'N/A';
     return new Date(dateStr).toLocaleDateString('en-US', {
-      year: 'numeric', month: 'short', day: 'numeric',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
     });
   };
 
-  return (
-    <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh', py: 4 }}>
-      <Container maxWidth="xl">
+  // Columns for responsive table
+  const columns = [
+    {
+      key: 'full_name',
+      label: 'Customer',
+      render: (value, row) => (
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <Avatar sx={{ width: 32, height: 32, bgcolor: '#2563eb', fontSize: '0.8rem', fontWeight: 700 }}>
+            {value?.charAt(0)?.toUpperCase() || '?'}
+          </Avatar>
+          <Box>
+            <Typography variant="body2" fontWeight={600} color="#0f172a">
+              {value || 'N/A'}
+            </Typography>
+            <Typography variant="caption" color="#94a3b8">
+              ID: #{row.id}
+            </Typography>
+          </Box>
+        </Stack>
+      ),
+    },
+    {
+      key: 'email',
+      label: 'Email',
+      render: (value) => (
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Email sx={{ fontSize: 14, color: '#94a3b8' }} />
+          <Typography variant="body2" color="#334155">{value || 'N/A'}</Typography>
+        </Stack>
+      ),
+    },
+    {
+      key: 'phone',
+      label: 'Phone',
+      render: (value) => (
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Phone sx={{ fontSize: 14, color: '#94a3b8' }} />
+          <Typography variant="body2" color="#334155">{value || 'N/A'}</Typography>
+        </Stack>
+      ),
+    },
+    {
+      key: 'is_active',
+      label: 'Status',
+      render: (value) => (
+        <Chip
+          icon={value ? <CheckCircle /> : <Block />}
+          label={value ? 'Active' : 'Inactive'}
+          color={value ? 'success' : 'default'}
+          size="small"
+          variant={value ? 'filled' : 'outlined'}
+        />
+      ),
+    },
+    {
+      key: 'telegram_chat_id',
+      label: 'Telegram',
+      render: (value) => (
+        value ? (
+          <Chip icon={<Telegram sx={{ fontSize: 14 }} />} label="Connected" color="primary" size="small" variant="outlined" />
+        ) : (
+          <Chip label="Not Connected" size="small" variant="outlined" sx={{ color: '#94a3b8' }} />
+        )
+      ),
+    },
+    {
+      key: 'created_at',
+      label: 'Joined',
+      render: (value) => (
+        <Typography variant="body2" color="#64748b">{formatDate(value)}</Typography>
+      ),
+    },
+  ];
 
+  // Actions for each row
+  const rowActions = (row) => (
+    <>
+      <Tooltip title="Toggle Active">
+        <IconButton size="small" onClick={() => handleToggleActive(row.id)} color={row.is_active ? 'success' : 'default'}>
+          {row.is_active ? <CheckCircle fontSize="small" /> : <Block fontSize="small" />}
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Edit">
+        <IconButton size="small" onClick={() => handleEditClick(row)} color="primary">
+          <Edit fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Delete">
+        <IconButton size="small" onClick={() => handleDeleteClick(row)} color="error">
+          <Delete fontSize="small" />
+        </IconButton>
+      </Tooltip>
+    </>
+  );
+
+  return (
+    <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh', py: { xs: 2, sm: 4 } }}>
+      <Container maxWidth="xl" sx={{ px: { xs: 1, sm: 2, md: 3 } }}>
         {/* Back Button */}
         <Button
           startIcon={<ArrowBack />}
@@ -189,21 +274,33 @@ const AdminCustomers = () => {
         </Button>
 
         {/* Header */}
-        <Paper elevation={0} sx={{ p: 3, mb: 3, borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white' }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
+        <Paper elevation={0} sx={{ p: { xs: 2, sm: 3 }, mb: 3, borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white' }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} flexWrap="wrap" gap={2}>
             <Box>
-              <Typography variant="h5" fontWeight={700} color="#0f172a">Customers</Typography>
-              <Typography variant="body2" color="#94a3b8" mt={0.5}>{total} total customer{total !== 1 ? 's' : ''}</Typography>
+              <Typography variant="h5" fontWeight={700} color="#0f172a" sx={{ fontSize: { xs: '1.1rem', sm: '1.3rem', md: '1.5rem' } }}>
+                Customers
+              </Typography>
+              <Typography variant="body2" color="#94a3b8" mt={0.5}>
+                {total} total customer{total !== 1 ? 's' : ''}
+              </Typography>
             </Box>
-            <Button startIcon={<Refresh />} onClick={fetchCustomers} size="small" sx={{ borderRadius: 2, textTransform: 'none' }}>Refresh</Button>
+            <Button startIcon={<Refresh />} onClick={fetchCustomers} size="small" sx={{ borderRadius: 2, textTransform: 'none' }}>
+              Refresh
+            </Button>
           </Stack>
-          <Stack direction="row" spacing={2} mt={2}>
+          
+          {/* Search */}
+          <Stack direction="row" spacing={2} mt={2} flexWrap="wrap" useFlexGap>
             <TextField
               placeholder="Search by name or email..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               size="small"
-              sx={{ flex: 1, maxWidth: 400 }}
+              sx={{ 
+                flex: 1, 
+                minWidth: { xs: '100%', sm: 250, md: 400 },
+                maxWidth: { xs: '100%', sm: 400 },
+              }}
               InputProps={{
                 startAdornment: <InputAdornment position="start"><Search sx={{ color: '#94a3b8' }} /></InputAdornment>,
                 endAdornment: search && (
@@ -215,82 +312,46 @@ const AdminCustomers = () => {
               }}
             />
             {debouncedSearch && (
-              <Chip label={`"${debouncedSearch}"`} size="small" onDelete={handleClearSearch} sx={{ bgcolor: '#eff6ff', color: '#2563eb' }} />
+              <Chip 
+                label={`"${debouncedSearch}"`} 
+                size="small" 
+                onDelete={handleClearSearch} 
+                sx={{ bgcolor: '#eff6ff', color: '#2563eb' }} 
+              />
             )}
           </Stack>
         </Paper>
 
-        {/* Customers Table */}
-        <Paper elevation={0} sx={{ borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white', overflow: 'hidden' }}>
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow sx={{ bgcolor: '#f8fafc' }}>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Customer</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Email</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Phone</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Status</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Telegram</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Joined</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }} align="center">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {loading ? (
-                  <TableRow><TableCell colSpan={7} align="center" sx={{ py: 8 }}><CircularProgress /></TableCell></TableRow>
-                ) : customers.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 8 }}>
-                      <Person sx={{ fontSize: 48, color: '#cbd5e1', mb: 1 }} />
-                      <Typography variant="h6" color="#94a3b8">No customers found</Typography>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  customers.map((customer) => (
-                    <TableRow key={customer.id} hover>
-                      <TableCell>
-                        <Stack direction="row" spacing={1.5} alignItems="center">
-                          <Avatar sx={{ width: 36, height: 36, bgcolor: '#2563eb', fontSize: '0.9rem', fontWeight: 700 }}>
-                            {customer.full_name?.charAt(0)?.toUpperCase() || '?'}
-                          </Avatar>
-                          <Box>
-                            <Typography variant="body2" fontWeight={600} color="#0f172a">{customer.full_name || 'N/A'}</Typography>
-                            <Typography variant="caption" color="#94a3b8">ID: #{customer.id}</Typography>
-                          </Box>
-                        </Stack>
-                      </TableCell>
-                      <TableCell><Typography variant="body2" color="#334155">{customer.email || 'N/A'}</Typography></TableCell>
-                      <TableCell><Typography variant="body2" color="#334155">{customer.phone || 'N/A'}</Typography></TableCell>
-                      <TableCell>
-                        <Chip icon={customer.is_active ? <CheckCircle /> : <Block />} label={customer.is_active ? 'Active' : 'Inactive'} color={customer.is_active ? 'success' : 'default'} size="small" variant={customer.is_active ? 'filled' : 'outlined'} />
-                      </TableCell>
-                      <TableCell>
-                        {customer.telegram_chat_id ? (
-                          <Chip icon={<Telegram sx={{ fontSize: 14 }} />} label="Connected" color="primary" size="small" variant="outlined" />
-                        ) : (
-                          <Chip label="Not Connected" size="small" variant="outlined" sx={{ color: '#94a3b8' }} />
-                        )}
-                      </TableCell>
-                      <TableCell><Typography variant="body2" color="#64748b">{formatDate(customer.created_at)}</Typography></TableCell>
-                      <TableCell align="center">
-                        <Stack direction="row" spacing={0.5} justifyContent="center">
-                          <Tooltip title="Toggle Active"><IconButton size="small" onClick={() => handleToggleActive(customer.id)} color={customer.is_active ? 'success' : 'default'}>{customer.is_active ? <CheckCircle fontSize="small" /> : <Block fontSize="small" />}</IconButton></Tooltip>
-                          <Tooltip title="Edit"><IconButton size="small" onClick={() => handleEditClick(customer)} color="primary"><Edit fontSize="small" /></IconButton></Tooltip>
-                          <Tooltip title="Delete"><IconButton size="small" onClick={() => handleDeleteClick(customer)} color="error"><Delete fontSize="small" /></IconButton></Tooltip>
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-          {totalPages > 1 && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 2, borderTop: '1px solid #e2e8f0' }}>
-              <Pagination count={totalPages} page={page} onChange={(e, p) => setPage(p)} color="primary" showFirstButton showLastButton />
-            </Box>
-          )}
-        </Paper>
+        {/* Customers Table - Responsive */}
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+            <CircularProgress />
+          </Box>
+        ) : (
+          <Paper elevation={0} sx={{ borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white', overflow: 'hidden' }}>
+            <ResponsiveTable
+              columns={columns}
+              data={customers}
+              actions={rowActions}
+              emptyMessage="No customers found"
+            />
+          </Paper>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 2, mt: 2 }}>
+            <Pagination
+              count={totalPages}
+              page={page}
+              onChange={(e, p) => setPage(p)}
+              color="primary"
+              showFirstButton
+              showLastButton
+              size={isMobile ? 'small' : 'medium'}
+            />
+          </Box>
+        )}
       </Container>
 
       {/* Edit Dialog */}
@@ -298,14 +359,37 @@ const AdminCustomers = () => {
         <DialogTitle sx={{ fontWeight: 700 }}>Edit Customer</DialogTitle>
         <DialogContent>
           <Stack spacing={2.5} sx={{ mt: 1 }}>
-            <TextField label="Full Name" value={editForm.full_name} onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })} fullWidth size="small" InputProps={{ startAdornment: <InputAdornment position="start"><Person fontSize="small" /></InputAdornment> }} />
-            <TextField label="Email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} fullWidth size="small" InputProps={{ startAdornment: <InputAdornment position="start"><Email fontSize="small" /></InputAdornment> }} />
-            <TextField label="Phone" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} fullWidth size="small" InputProps={{ startAdornment: <InputAdornment position="start"><Phone fontSize="small" /></InputAdornment> }} />
+            <TextField 
+              label="Full Name" 
+              value={editForm.full_name} 
+              onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })} 
+              fullWidth 
+              size="small" 
+              InputProps={{ startAdornment: <InputAdornment position="start"><Person fontSize="small" /></InputAdornment> }} 
+            />
+            <TextField 
+              label="Email" 
+              value={editForm.email} 
+              onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} 
+              fullWidth 
+              size="small" 
+              InputProps={{ startAdornment: <InputAdornment position="start"><Email fontSize="small" /></InputAdornment> }} 
+            />
+            <TextField 
+              label="Phone" 
+              value={editForm.phone} 
+              onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} 
+              fullWidth 
+              size="small" 
+              InputProps={{ startAdornment: <InputAdornment position="start"><Phone fontSize="small" /></InputAdornment> }} 
+            />
           </Stack>
         </DialogContent>
         <DialogActions sx={{ p: 3, pt: 0 }}>
           <Button onClick={() => setEditDialog({ open: false, customer: null })} sx={{ borderRadius: 2, textTransform: 'none' }}>Cancel</Button>
-          <Button variant="contained" onClick={handleSaveEdit} disabled={saving} sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}>{saving ? <CircularProgress size={20} /> : 'Save Changes'}</Button>
+          <Button variant="contained" onClick={handleSaveEdit} disabled={saving} sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}>
+            {saving ? <CircularProgress size={20} /> : 'Save Changes'}
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -322,7 +406,13 @@ const AdminCustomers = () => {
         </DialogActions>
       </Dialog>
 
-      <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar(s => ({ ...s, open: false }))}>
+      {/* Snackbar */}
+      <Snackbar 
+        open={snackbar.open} 
+        autoHideDuration={3000} 
+        onClose={() => setSnackbar(s => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
         <Alert severity={snackbar.severity} variant="filled" sx={{ borderRadius: 2 }}>{snackbar.message}</Alert>
       </Snackbar>
     </Box>

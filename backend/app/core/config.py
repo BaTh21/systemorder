@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     BANK_SWIFT_CODE: str = "ABAAKHPP"
     BANK_ROUTING_NUMBER: str = "021000021"
     QR_CODE_URL: str = "/uploads/payments/qr-code.jpg"
+    
+    # ✅ Notification Settings (No Email)
+    NOTIFICATION_TELEGRAM_ENABLED: bool = True
+    NOTIFICATION_IN_APP_ENABLED: bool = True
+    ADMIN_APPROVAL_ENABLED: bool = True
 
     class Config:
         env_file = ".env"

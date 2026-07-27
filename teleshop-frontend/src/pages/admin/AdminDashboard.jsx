@@ -1,4 +1,3 @@
-// src/pages/admin/AdminDashboard.jsx
 import { useState, useEffect, useCallback } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
@@ -21,6 +20,7 @@ import {
   LinearProgress,
   Stack,
   Button,
+  Badge,
 } from '@mui/material';
 import {
   ShoppingCart,
@@ -32,6 +32,7 @@ import {
   Circle,
   Category,
   Chat,
+  PersonAdd,
 } from '@mui/icons-material';
 import {
   BarChart,
@@ -45,9 +46,14 @@ import {
 import api from '../../api/axios';
 
 const statusColors = {
-  pending: 'default', confirmed: 'primary', waiting_payment: 'warning',
-  paid: 'info', purchasing: 'info', shipping: 'primary',
-  completed: 'success', cancelled: 'error',
+  pending: 'default',
+  confirmed: 'primary',
+  waiting_payment: 'warning',
+  paid: 'info',
+  purchasing: 'info',
+  shipping: 'primary',
+  completed: 'success',
+  cancelled: 'error',
 };
 
 const AdminDashboard = () => {
@@ -57,6 +63,24 @@ const AdminDashboard = () => {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [orderPage, setOrderPage] = useState(1);
   const [ordersPerPage] = useState(5);
+  
+  // ✅ Add state for pending users
+  const [pendingUsers, setPendingUsers] = useState([]);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+
+  // Fetch pending users
+  const fetchPendingUsers = useCallback(async () => {
+    try {
+      const response = await api.get('/admin/users/pending', {
+        params: { page: 1, limit: 5 }
+      });
+      setPendingUsers(response.data.items || []);
+      setPendingCount(response.data.total || 0);
+    } catch (error) {
+      console.error('Error fetching pending users:', error);
+    }
+  }, []);
 
   const fetchDashboard = useCallback(async () => {
     try {
@@ -64,30 +88,103 @@ const AdminDashboard = () => {
       setDashboardData(response.data);
       setLastUpdate(new Date());
       setLoading(false);
-    } catch (error) { console.error('Error:', error); setLoading(false); }
+    } catch (error) {
+      console.error('Error:', error);
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => { fetchDashboard(); }, [fetchDashboard]);
+  useEffect(() => {
+    fetchDashboard();
+    fetchPendingUsers();
+  }, [fetchDashboard, fetchPendingUsers]);
 
   useEffect(() => {
     if (!autoRefresh) return;
-    const interval = setInterval(() => fetchDashboard(), 30000);
+    const interval = setInterval(() => {
+      fetchDashboard();
+      fetchPendingUsers();
+    }, 30000);
     return () => clearInterval(interval);
-  }, [autoRefresh, fetchDashboard]);
+  }, [autoRefresh, fetchDashboard, fetchPendingUsers]);
 
   if (loading && !dashboardData) {
-    return <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh"><CircularProgress size={48} /></Box>;
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+        <CircularProgress size={48} />
+      </Box>
+    );
   }
 
   const stats = dashboardData?.stats || {};
 
+  // ✅ Stat Cards with pendingCount
   const statCards = [
-    { title: 'Total Revenue', value: `$${(stats.total_revenue || 0).toLocaleString()}`, subtitle: `✅ $${(stats.completed_revenue || 0).toLocaleString()} completed | 🔄 $${(stats.active_revenue || 0).toLocaleString()} active`, icon: <AttachMoney sx={{ fontSize: { xs: 24, sm: 40 } }} />, color: '#2e7d32', bgColor: '#e8f5e9', link: '/admin/orders' },
-    { title: 'Orders', value: stats.total_orders || 0, subtitle: `✅ ${stats.completed_orders || 0} done | ❌ ${stats.cancelled_orders || 0} cancelled | ⏳ ${stats.pending_orders || 0} pending`, icon: <ShoppingCart sx={{ fontSize: { xs: 24, sm: 40 } }} />, color: '#1976d2', bgColor: '#e3f2fd', link: '/admin/orders' },
-    { title: 'Products', value: stats.active_products || 0, subtitle: `⚠️ ${stats.low_stock || 0} low stock | 🚫 ${stats.out_of_stock || 0} out`, icon: <Inventory sx={{ fontSize: { xs: 24, sm: 40 } }} />, color: '#ed6c02', bgColor: '#fff3e0', link: '/admin/products' },
-    { title: 'Customers', value: stats.total_customers || 0, subtitle: `+${stats.new_customers_today || 0} today`, icon: <People sx={{ fontSize: { xs: 24, sm: 40 } }} />, color: '#9c27b0', bgColor: '#f3e5f5', link: '/admin/customers' },
-    { title: 'Categories', value: stats.total_categories || 0, subtitle: 'Manage categories', icon: <Category sx={{ fontSize: { xs: 24, sm: 40 } }} />, color: '#0891b2', bgColor: '#ecfeff', link: '/admin/categories' },
-    { title: 'Live Chat', value: 'Support', subtitle: 'Chat with customers', icon: <Chat sx={{ fontSize: { xs: 24, sm: 40 } }} />, color: '#6366f1', bgColor: '#eef2ff', link: '/admin/chat' },
+    {
+      title: 'Total Revenue',
+      value: `$${(stats.total_revenue || 0).toLocaleString()}`,
+      subtitle: `✅ $${(stats.completed_revenue || 0).toLocaleString()} completed | 🔄 $${(stats.active_revenue || 0).toLocaleString()} active`,
+      icon: <AttachMoney sx={{ fontSize: { xs: 24, sm: 40 } }} />,
+      color: '#2e7d32',
+      bgColor: '#e8f5e9',
+      link: '/admin/orders'
+    },
+    {
+      title: 'Orders',
+      value: stats.total_orders || 0,
+      subtitle: `✅ ${stats.completed_orders || 0} done | ❌ ${stats.cancelled_orders || 0} cancelled | ⏳ ${stats.pending_orders || 0} pending`,
+      icon: <ShoppingCart sx={{ fontSize: { xs: 24, sm: 40 } }} />,
+      color: '#1976d2',
+      bgColor: '#e3f2fd',
+      link: '/admin/orders'
+    },
+    {
+      title: 'Products',
+      value: stats.active_products || 0,
+      subtitle: `⚠️ ${stats.low_stock || 0} low stock | 🚫 ${stats.out_of_stock || 0} out`,
+      icon: <Inventory sx={{ fontSize: { xs: 24, sm: 40 } }} />,
+      color: '#ed6c02',
+      bgColor: '#fff3e0',
+      link: '/admin/products'
+    },
+    {
+      title: 'Customers',
+      value: stats.total_customers || 0,
+      subtitle: `+${stats.new_customers_today || 0} today`,
+      icon: <People sx={{ fontSize: { xs: 24, sm: 40 } }} />,
+      color: '#9c27b0',
+      bgColor: '#f3e5f5',
+      link: '/admin/customers'
+    },
+    {
+      title: 'Categories',
+      value: stats.total_categories || 0,
+      subtitle: 'Manage categories',
+      icon: <Category sx={{ fontSize: { xs: 24, sm: 40 } }} />,
+      color: '#0891b2',
+      bgColor: '#ecfeff',
+      link: '/admin/categories'
+    },
+    {
+      title: 'Live Chat',
+      value: 'Support',
+      subtitle: 'Chat with customers',
+      icon: <Chat sx={{ fontSize: { xs: 24, sm: 40 } }} />,
+      color: '#6366f1',
+      bgColor: '#eef2ff',
+      link: '/admin/chat'
+    },
+    // ✅ ADD PENDING APPROVALS CARD
+    {
+      title: 'Pending Approvals',
+      value: pendingCount,
+      subtitle: pendingCount > 0 ? `${pendingCount} users waiting for approval` : 'No pending users',
+      icon: <PersonAdd sx={{ fontSize: { xs: 24, sm: 40 } }} />,
+      color: '#f59e0b',
+      bgColor: '#fef3c7',
+      link: '/admin/pending-users',
+      badge: pendingCount > 0 ? pendingCount : null,
+    },
   ];
 
   const formatStatus = (status) => {
@@ -95,9 +192,14 @@ const AdminDashboard = () => {
     return status.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
   };
 
-  const sortedRecentOrders = [...(dashboardData?.recent_orders || [])].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const sortedRecentOrders = [...(dashboardData?.recent_orders || [])].sort(
+    (a, b) => new Date(a.created_at) - new Date(b.created_at)
+  );
   const totalOrderPages = Math.ceil(sortedRecentOrders.length / ordersPerPage) || 1;
-  const paginatedOrders = sortedRecentOrders.slice((orderPage - 1) * ordersPerPage, orderPage * ordersPerPage);
+  const paginatedOrders = sortedRecentOrders.slice(
+    (orderPage - 1) * ordersPerPage,
+    orderPage * ordersPerPage
+  );
 
   return (
     <Container maxWidth="xl" sx={{ py: { xs: 2, sm: 4 } }}>
@@ -112,12 +214,33 @@ const AdminDashboard = () => {
             <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
               {autoRefresh ? 'Auto-refreshing every 30s' : 'Auto-refresh paused'} · {lastUpdate?.toLocaleTimeString()}
             </Typography>
+            {pendingCount > 0 && (
+              <Chip 
+                label={`${pendingCount} pending approval`} 
+                color="warning" 
+                size="small" 
+                sx={{ fontSize: { xs: '0.6rem', sm: '0.7rem' } }}
+              />
+            )}
           </Box>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Chip label={autoRefresh ? 'Auto-Refresh ON' : 'Auto-Refresh OFF'} color={autoRefresh ? 'success' : 'default'}
-            onClick={() => setAutoRefresh(!autoRefresh)} size="small" sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }} />
-          <IconButton onClick={() => { setLoading(true); fetchDashboard(); }} color="primary" disabled={loading}>
+          <Chip 
+            label={autoRefresh ? 'Auto-Refresh ON' : 'Auto-Refresh OFF'} 
+            color={autoRefresh ? 'success' : 'default'}
+            onClick={() => setAutoRefresh(!autoRefresh)} 
+            size="small" 
+            sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }} 
+          />
+          <IconButton 
+            onClick={() => { 
+              setLoading(true); 
+              fetchDashboard(); 
+              fetchPendingUsers(); 
+            }} 
+            color="primary" 
+            disabled={loading}
+          >
             {loading ? <CircularProgress size={20} /> : <Refresh />}
           </IconButton>
         </Box>
@@ -126,9 +249,35 @@ const AdminDashboard = () => {
       {/* Stat Cards */}
       <Grid container spacing={{ xs: 1.5, sm: 2, md: 3 }} sx={{ mb: { xs: 2, md: 4 } }}>
         {statCards.map((stat) => (
-          <Grid item xs={6} sm={4} md={4} lg={2} key={stat.title}>
-            <Card component={RouterLink} to={stat.link}
-              sx={{ textDecoration: 'none', height: '100%', transition: 'all 0.3s', bgcolor: stat.bgColor, '&:hover': { transform: 'translateY(-4px)', boxShadow: 6 } }}>
+          <Grid item xs={6} sm={4} md={4} lg={2.4} key={stat.title}>
+            <Card 
+              component={RouterLink} 
+              to={stat.link}
+              sx={{ 
+                textDecoration: 'none', 
+                height: '100%', 
+                transition: 'all 0.3s', 
+                bgcolor: stat.bgColor, 
+                '&:hover': { transform: 'translateY(-4px)', boxShadow: 6 },
+                position: 'relative',
+              }}
+            >
+              {stat.badge && (
+                <Badge 
+                  badgeContent={stat.badge} 
+                  color="error"
+                  sx={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    '& .MuiBadge-badge': {
+                      fontSize: '0.7rem',
+                      height: 20,
+                      minWidth: 20,
+                    }
+                  }}
+                />
+              )}
               <CardContent sx={{ p: { xs: 1.5, sm: 2, md: 3 } }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <Box>
@@ -179,16 +328,28 @@ const AdminDashboard = () => {
                 🏆 Top Selling Products
               </Typography>
               {(dashboardData?.top_products || []).length === 0 ? (
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 2, fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>No sales data yet</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 2, fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                  No sales data yet
+                </Typography>
               ) : (
                 (dashboardData?.top_products || []).map((product, index) => (
                   <Box key={index} sx={{ mb: { xs: 1.5, md: 2 } }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                      <Typography variant="body2" noWrap sx={{ maxWidth: { xs: 120, sm: 200 }, fontSize: { xs: '0.7rem', sm: '0.85rem' } }}>{product.name}</Typography>
-                      <Typography variant="body2" fontWeight="bold" sx={{ fontSize: { xs: '0.7rem', sm: '0.85rem' } }}>${product.revenue?.toLocaleString()}</Typography>
+                      <Typography variant="body2" noWrap sx={{ maxWidth: { xs: 120, sm: 200 }, fontSize: { xs: '0.7rem', sm: '0.85rem' } }}>
+                        {product.name}
+                      </Typography>
+                      <Typography variant="body2" fontWeight="bold" sx={{ fontSize: { xs: '0.7rem', sm: '0.85rem' } }}>
+                        ${product.revenue?.toLocaleString()}
+                      </Typography>
                     </Box>
-                    <LinearProgress variant="determinate" value={Math.max(10, 100 - index * 20)} sx={{ height: { xs: 4, sm: 6 }, borderRadius: 3 }} />
-                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.6rem', sm: '0.75rem' } }}>{product.quantity} units sold</Typography>
+                    <LinearProgress 
+                      variant="determinate" 
+                      value={Math.max(10, 100 - index * 20)} 
+                      sx={{ height: { xs: 4, sm: 6 }, borderRadius: 3 }} 
+                    />
+                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.6rem', sm: '0.75rem' } }}>
+                      {product.quantity} units sold
+                    </Typography>
                   </Box>
                 ))
               )}
@@ -222,7 +383,13 @@ const AdminDashboard = () => {
               </TableHead>
               <TableBody>
                 {paginatedOrders.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} align="center"><Typography variant="body2" color="text.secondary" sx={{ py: 2, fontSize: { xs: '0.7rem', sm: '0.875rem' } }}>No orders yet</Typography></TableCell></TableRow>
+                  <TableRow>
+                    <TableCell colSpan={5} align="center">
+                      <Typography variant="body2" color="text.secondary" sx={{ py: 2, fontSize: { xs: '0.7rem', sm: '0.875rem' } }}>
+                        No orders yet
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
                 ) : (
                   paginatedOrders.map((order) => (
                     <TableRow key={order.id} hover>
@@ -234,7 +401,12 @@ const AdminDashboard = () => {
                         ${Number(order.total || 0).toLocaleString()}
                       </TableCell>
                       <TableCell>
-                        <Chip label={formatStatus(order.status)} color={statusColors[order.status] || 'default'} size="small" sx={{ fontSize: { xs: '0.6rem', sm: '0.7rem' } }} />
+                        <Chip 
+                          label={formatStatus(order.status)} 
+                          color={statusColors[order.status] || 'default'} 
+                          size="small" 
+                          sx={{ fontSize: { xs: '0.6rem', sm: '0.7rem' } }} 
+                        />
                       </TableCell>
                       <TableCell sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' }, display: { xs: 'none', md: 'table-cell' } }}>
                         {order.created_at ? new Date(order.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'N/A'}
@@ -252,9 +424,15 @@ const AdminDashboard = () => {
               <Button size="small" disabled={orderPage === 1} onClick={() => setOrderPage(orderPage - 1)}
                 sx={{ textTransform: 'none', minWidth: 50, fontSize: '0.75rem' }}>← Prev</Button>
               {Array.from({ length: totalOrderPages }, (_, i) => i + 1).map((pageNum) => (
-                <Chip key={pageNum} label={pageNum} size="small" onClick={() => setOrderPage(pageNum)}
-                  color={orderPage === pageNum ? 'primary' : 'default'} variant={orderPage === pageNum ? 'filled' : 'outlined'}
-                  sx={{ cursor: 'pointer', minWidth: 28, height: 24, fontWeight: 600, fontSize: '0.7rem' }} />
+                <Chip 
+                  key={pageNum} 
+                  label={pageNum} 
+                  size="small" 
+                  onClick={() => setOrderPage(pageNum)}
+                  color={orderPage === pageNum ? 'primary' : 'default'} 
+                  variant={orderPage === pageNum ? 'filled' : 'outlined'}
+                  sx={{ cursor: 'pointer', minWidth: 28, height: 24, fontWeight: 600, fontSize: '0.7rem' }} 
+                />
               ))}
               <Button size="small" disabled={orderPage === totalOrderPages} onClick={() => setOrderPage(orderPage + 1)}
                 sx={{ textTransform: 'none', minWidth: 50, fontSize: '0.75rem' }}>Next →</Button>

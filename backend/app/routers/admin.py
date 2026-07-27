@@ -13,7 +13,7 @@ from pathlib import Path
 from app.core.deps import get_current_user, admin_required
 from app.core.database import get_db
 from app.models.order import Order, OrderStatus
-from app.models.user import User
+from app.models.user import User, UserStatus
 from app.models.product import Product, ProductImage, ProductVariant
 from app.models.category import Category
 from app.core.config import settings
@@ -22,6 +22,12 @@ from sqlalchemy.orm import selectinload
 from app.models.order import Order, OrderStatus, OrderItem
 from app.services.telegram import send_order_status_update
 from app.services.cloudinary_service import upload_image
+from app.schemas.auth import AdminUserApproval 
+from app.services.notification_service import (
+    send_account_approved_notification,
+    send_account_rejected_notification
+)
+from app.services.telegram import send_telegram_message
 
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(admin_required)])
@@ -592,7 +598,8 @@ async def list_customers(
     limit: int = 20,
     db: AsyncSession = Depends(get_db)
 ):
-    """List all customers with pagination and search"""
+    """List all customers with pagination and search - Sorted by oldest first"""
+    
     query = select(User).where(User.role == "customer")
     
     if search:
@@ -604,14 +611,11 @@ async def list_customers(
     # Get total count
     count_query = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_query)).scalar()
-    
-    # Get paginated results
-    query = query.order_by(User.created_at.desc())
+    query = query.order_by(User.created_at.asc())
     query = query.offset((page - 1) * limit).limit(limit)
     result = await db.execute(query)
     customers = result.scalars().all()
     
-    # Return consistent format with items array
     return {
         "items": customers,
         "total": total or 0,
@@ -1228,3 +1232,264 @@ async def delete_customer(
     await db.delete(customer)
     await db.commit()
     return {"message": "Customer deleted"}
+
+@router.get("/users")
+async def admin_list_users(
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = 1,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(admin_required)
+):
+    """Admin: List all users with filters - Sorted by oldest first"""
+    
+    query = select(User)
+    
+    if status:
+        query = query.where(User.status == status)
+    
+    if search:
+        query = query.where(
+            (User.full_name.ilike(f"%{search}%")) |
+            (User.email.ilike(f"%{search}%")) |
+            (User.phone.ilike(f"%{search}%"))
+        )
+    
+    # Get total count
+    count_query = select(func.count()).select_from(query.subquery())
+    total = (await db.execute(count_query)).scalar()
+    
+    query = query.order_by(User.created_at.asc())
+    query = query.offset((page - 1) * limit).limit(limit)
+    result = await db.execute(query)
+    users = result.scalars().all()
+    
+    return {
+        "items": [
+            {
+                "id": u.id,
+                "full_name": u.full_name,
+                "email": u.email,
+                "phone": u.phone,
+                "role": u.role.value if u.role else "customer",
+                "status": u.status.value if u.status else "pending",
+                "telegram_chat_id": u.telegram_chat_id,
+                "is_active": u.is_active,
+                "created_at": u.created_at,
+                "approved_at": u.approved_at,
+                "approved_by": u.approved_by.full_name if u.approved_by else None,
+                "rejection_reason": u.rejection_reason
+            }
+            for u in users
+        ],
+        "total": total or 0,
+        "page": page,
+        "limit": limit,
+        "total_pages": max(1, ((total or 0) + limit - 1) // limit)
+    }
+
+@router.get("/users/pending")
+async def get_pending_users(
+    page: int = 1,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(admin_required)
+):
+    """Admin: Get all pending users for approval"""
+    
+    # ✅ Handle NULL status as well
+    result = await db.execute(
+        select(User)
+        .where(
+            (User.status == UserStatus.pending) | (User.status.is_(None))
+        )
+        .order_by(User.created_at.asc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+    )
+    users = result.scalars().all()
+    
+    # Count total pending (including NULL)
+    count_result = await db.execute(
+        select(func.count(User.id))
+        .where(
+            (User.status == UserStatus.pending) | (User.status.is_(None))
+        )
+    )
+    total = count_result.scalar()
+    
+    return {
+        "items": [
+            {
+                "id": u.id,
+                "full_name": u.full_name,
+                "email": u.email,
+                "phone": u.phone,
+                "created_at": u.created_at,
+                "status": u.status.value if u.status else "pending"
+            }
+            for u in users
+        ],
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": (total + limit - 1) // limit if total > 0 else 1
+    }
+
+
+@router.put("/users/{user_id}/approve")
+async def approve_user(
+    user_id: int,
+    data: AdminUserApproval,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(admin_required)
+):
+
+    
+    # Get user
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalars().first()
+    
+    if not user:
+        raise HTTPException(404, f"User with ID {user_id} not found")
+    
+    # ✅ Check if user is pending (handle NULL status)
+    current_status = user.status.value if user.status else None
+    
+    if current_status == "approved":
+        raise HTTPException(400, f"User is already approved")
+    
+    if current_status == "rejected":
+        raise HTTPException(400, f"User was already rejected: {user.rejection_reason or 'No reason provided'}")
+    
+    if current_status == "suspended":
+        raise HTTPException(400, f"User is suspended")
+    
+    # If status is None or pending, we can approve/reject
+    if current_status is not None and current_status != "pending":
+        raise HTTPException(400, f"User is already {current_status}")
+    
+    # Update user status
+    if data.status == "approved":
+        user.status = UserStatus.approved
+        print(f"✅ User {user.id} approved by {current_user.full_name}")
+    else:
+        user.status = UserStatus.rejected
+        user.rejection_reason = data.rejection_reason
+        print(f"❌ User {user.id} rejected by {current_user.full_name}: {data.rejection_reason}")
+    
+    user.approved_by_id = current_user.id
+    user.approved_at = datetime.utcnow()
+    
+    await db.commit()
+    await db.refresh(user)
+    
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # SEND NOTIFICATIONS (Telegram + In-App)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    # Send notification to user
+    if data.status == "approved":
+        background_tasks.add_task(
+            send_account_approved_notification,
+            user.id,
+            user.full_name
+        )
+        print(f"📤 Approval notification sent to user {user.id}")
+    else:
+        background_tasks.add_task(
+            send_account_rejected_notification,
+            user.id,
+            user.full_name,
+            data.rejection_reason or "No reason provided"
+        )
+        print(f"📤 Rejection notification sent to user {user.id}")
+    
+    # Notify admin who made the decision
+    if settings.TELEGRAM_ADMIN_CHAT_ID:
+        admin_message = f"""
+📋 <b>User {user.status.value.upper()}</b>
+
+👤 <b>User:</b> {user.full_name}
+📧 <b>Email:</b> {user.email}
+📱 <b>Phone:</b> {user.phone}
+🆔 <b>ID:</b> {user.id}
+👨‍💼 <b>Approved by:</b> {current_user.full_name}
+
+Status: {"✅ Approved" if user.status == UserStatus.approved else "❌ Rejected"}
+{f"📝 Reason: {data.rejection_reason}" if data.status == 'rejected' else ""}
+"""
+        background_tasks.add_task(
+            send_telegram_message,
+            settings.TELEGRAM_ADMIN_CHAT_ID,
+            admin_message
+        )
+        print(f"📤 Admin notification sent")
+    
+    return {
+        "message": f"User {user.status.value} successfully",
+        "user_id": user.id,
+        "status": user.status.value,
+        "user_details": {
+            "full_name": user.full_name,
+            "email": user.email,
+            "phone": user.phone
+        },
+        "notifications_sent": {
+            "in_app": True,
+            "telegram": bool(user.telegram_chat_id)
+        }
+    }
+# ============================================
+# ADMIN: Toggle User Active Status
+# ============================================
+@router.put("/users/{user_id}/toggle-active")
+async def toggle_user_active(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(admin_required)
+):
+    """Admin: Toggle user active status (suspend/activate)"""
+    
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    
+    # Can't suspend self
+    if user.id == current_user.id:
+        raise HTTPException(400, "Cannot modify your own status")
+    
+    user.is_active = not user.is_active
+    await db.commit()
+    
+    return {
+        "message": f"User {'activated' if user.is_active else 'suspended'}",
+        "user_id": user.id,
+        "is_active": user.is_active
+    }
+
+
+# ============================================
+# ADMIN: Delete User
+# ============================================
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(admin_required)
+):
+    """Admin: Delete a user"""
+    
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    
+    if user.id == current_user.id:
+        raise HTTPException(400, "Cannot delete your own account")
+    
+    await db.delete(user)
+    await db.commit()
+    
+    return {"message": "User deleted successfully", "user_id": user_id}

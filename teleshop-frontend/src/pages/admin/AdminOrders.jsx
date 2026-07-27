@@ -4,43 +4,44 @@ import { useNavigate } from 'react-router-dom';
 import {
   Container,
   Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
+  Box,
   Paper,
   Chip,
-  IconButton,
-  Menu,
-  MenuItem,
   CircularProgress,
-  Box,
   Button,
+  TextField,
+  InputAdornment,
+  Stack,
+  Avatar,
+  IconButton,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField,
-  Select,
-  FormControl,
-  InputLabel,
-  Snackbar,
-  Alert,
-  Stack,
   Pagination,
   Tooltip,
+  Snackbar,
+  Alert,
+  useTheme,
+  useMediaQuery,
+  Menu,
+  MenuItem,
+  Card,
+  CardContent,
+  Divider,
 } from '@mui/material';
 import {
-  MoreVert,
+  Search,
   Refresh,
+  Clear,
   ArrowBack,
   Visibility,
+  MoreVert,
   LocalShipping,
-  Phone,
+  Person,
 } from '@mui/icons-material';
 import api from '../../api/axios';
+import ResponsiveTable from '../../components/ResponsiveTable';
 
 const statusColors = {
   pending: 'default',
@@ -66,8 +67,18 @@ const statusFlow = {
 
 const AdminOrders = () => {
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'md'));
+  
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [statusFilter, setStatusFilter] = useState('all');
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [openTrackingDialog, setOpenTrackingDialog] = useState(false);
@@ -76,34 +87,46 @@ const AdminOrders = () => {
   const [deliveryPhone, setDeliveryPhone] = useState('');
   const [deliveryNotes, setDeliveryNotes] = useState('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalOrders, setTotalOrders] = useState(0);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   useEffect(() => {
     fetchOrders();
-  }, [statusFilter, page]);
+  }, [page, debouncedSearch, statusFilter]);
 
   const fetchOrders = async () => {
     setLoading(true);
     try {
-      const params = { page, limit: 50 };
+      const params = { page, limit: 20 };
       if (statusFilter && statusFilter !== 'all') params.status = statusFilter;
+      if (debouncedSearch) params.search = debouncedSearch;
 
       const response = await api.get('/admin/orders', { params });
 
       let ordersData = [];
+      let totalCount = 0;
+      let pagesCount = 1;
+
       if (Array.isArray(response.data)) {
         ordersData = response.data;
+        totalCount = response.data.length;
       } else if (response.data?.items) {
         ordersData = response.data.items;
-        setTotalPages(Math.ceil((response.data.total || 0) / 50));
-        setTotalOrders(response.data.total || 0);
+        totalCount = response.data.total || response.data.items.length;
+        pagesCount = response.data.total_pages || Math.ceil(totalCount / 20);
+      } else {
+        ordersData = [];
       }
 
-      ordersData.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
       setOrders(ordersData);
+      setTotal(totalCount);
+      setTotalPages(pagesCount);
     } catch (error) {
       console.error('Error fetching orders:', error);
     } finally {
@@ -116,38 +139,41 @@ const AdminOrders = () => {
       await api.put(`/admin/orders/${orderId}/status`, null, {
         params: { status: newStatus }
       });
-      setSnackbar({ open: true, message: `Order #${orderId} → ${formatStatus(newStatus)}`, severity: 'success' });
+      setSnackbar({ open: true, message: `Order #${orderId} updated`, severity: 'success' });
+      setAnchorEl(null);
       fetchOrders();
     } catch (error) {
       setSnackbar({ open: true, message: 'Failed to update status', severity: 'error' });
     }
-    setAnchorEl(null);
   };
 
   const handleShippingUpdate = async () => {
     if (!selectedOrder) return;
     try {
       let trackingInfo = `${deliveryService}: ${trackingNumber}`;
-      if (deliveryPhone) {
-        trackingInfo += ` | 📞 ${deliveryPhone}`;
-      }
-      if (deliveryNotes) {
-        trackingInfo += ` | 📝 ${deliveryNotes}`;
-      }
+      if (deliveryPhone) trackingInfo += ` | 📞 ${deliveryPhone}`;
+      if (deliveryNotes) trackingInfo += ` | 📝 ${deliveryNotes}`;
 
       await api.put(`/admin/orders/${selectedOrder.id}/status`, null, {
         params: { status: 'shipping', tracking_number: trackingInfo }
       });
-      setSnackbar({ open: true, message: 'Tracking added & status updated!', severity: 'success' });
+      setSnackbar({ open: true, message: 'Shipping updated!', severity: 'success' });
       setOpenTrackingDialog(false);
       setTrackingNumber('');
       setDeliveryService('');
       setDeliveryPhone('');
       setDeliveryNotes('');
+      setAnchorEl(null);
       fetchOrders();
     } catch (error) {
       setSnackbar({ open: true, message: 'Failed to update shipping', severity: 'error' });
     }
+  };
+
+  const handleClearSearch = () => {
+    setSearch('');
+    setDebouncedSearch('');
+    setPage(1);
   };
 
   const formatStatus = (status) => {
@@ -157,7 +183,11 @@ const AdminOrders = () => {
 
   const formatDate = (dateStr) => {
     if (!dateStr) return 'N/A';
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return new Date(dateStr).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
   };
 
   const formatPrice = (price) => `$${Number(price || 0).toFixed(2)}`;
@@ -178,314 +208,537 @@ const AdminOrders = () => {
   };
 
   const getTrackingId = (tracking) => {
-    if (!tracking || !tracking.includes(':')) return tracking || '';
+    if (!tracking || !tracking.includes(':')) return '';
     const parts = tracking.split(':');
     if (parts.length < 2) return '';
-    const idPart = parts[1].split('|')[0].trim();
-    return idPart;
+    return parts[1].split('|')[0].trim();
   };
 
-  const getTrackingPhone = (tracking) => {
-    if (!tracking || !tracking.includes('📞')) return '';
-    const phonePart = tracking.split('📞')[1];
-    if (phonePart) {
-      return phonePart.split('|')[0].trim();
-    }
-    return '';
+  // Columns for ResponsiveTable
+  const columns = [
+    {
+      key: 'id',
+      label: 'Order',
+      render: (value) => (
+        <Typography sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: '0.8rem' }}>
+          #{String(value).padStart(6, '0')}
+        </Typography>
+      ),
+    },
+    {
+      key: 'customer',
+      label: 'Customer',
+      render: (value) => (
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <Avatar sx={{ width: 32, height: 32, bgcolor: '#2563eb', fontSize: '0.8rem', fontWeight: 700 }}>
+            {value?.charAt(0)?.toUpperCase() || '?'}
+          </Avatar>
+          <Typography variant="body2" fontWeight={500}>{value || 'N/A'}</Typography>
+        </Stack>
+      ),
+    },
+    {
+      key: 'items',
+      label: 'Items',
+      render: (value) => (
+        <Typography variant="body2" color="#64748b">{value?.length || 0} item(s)</Typography>
+      ),
+    },
+    {
+      key: 'total',
+      label: 'Total',
+      render: (value) => (
+        <Typography fontWeight={600} color="#059669">{formatPrice(value)}</Typography>
+      ),
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      render: (value) => (
+        <Chip
+          label={formatStatus(value)}
+          color={statusColors[value] || 'default'}
+          size="small"
+          sx={{ fontSize: '0.65rem', height: 24 }}
+        />
+      ),
+    },
+    {
+      key: 'created_at',
+      label: 'Date',
+      render: (value) => (
+        <Typography variant="body2" color="#64748b">{formatDate(value)}</Typography>
+      ),
+    },
+    {
+      key: 'tracking_number',
+      label: 'Delivery',
+      render: (value) => (
+        value ? (
+          <Stack spacing={0.3}>
+            <Chip
+              icon={<LocalShipping sx={{ fontSize: 12 }} />}
+              label={getDeliveryLabel(value)}
+              size="small"
+              variant="outlined"
+              color="primary"
+              sx={{ fontSize: '0.6rem', height: 22 }}
+            />
+            {getTrackingId(value) && (
+              <Typography variant="caption" color="#64748b" fontSize="0.6rem">
+                ID: {getTrackingId(value)}
+              </Typography>
+            )}
+          </Stack>
+        ) : (
+          <Typography variant="caption" color="#94a3b8">-</Typography>
+        )
+      ),
+    },
+  ];
+
+  // ✅ Actions for each row - with proper event handling
+  const rowActions = (row) => (
+    <>
+      <Tooltip title="View Details">
+        <IconButton 
+          size="small" 
+          onClick={() => navigate(`/orders/${row.id}`)} 
+          color="primary"
+          sx={{ p: { xs: 0.5, sm: 1 } }}
+        >
+          <Visibility fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Update Status">
+        <span>
+          <IconButton
+            size="small"
+            onClick={(e) => { 
+              e.stopPropagation();
+              setAnchorEl(e.currentTarget); 
+              setSelectedOrder(row); 
+            }}
+            disabled={!statusFlow[row.status] || statusFlow[row.status].length === 0}
+            sx={{ p: { xs: 0.5, sm: 1 } }}
+          >
+            <MoreVert fontSize="small" />
+          </IconButton>
+        </span>
+      </Tooltip>
+    </>
+  );
+
+  // ✅ Mobile Card View with working three dots
+  const MobileOrderCard = ({ order }) => {
+    const [cardAnchorEl, setCardAnchorEl] = useState(null);
+
+    const handleCardMenuOpen = (event) => {
+      event.stopPropagation();
+      setCardAnchorEl(event.currentTarget);
+      setSelectedOrder(order);
+    };
+
+    const handleCardMenuClose = () => {
+      setCardAnchorEl(null);
+    };
+
+    const handleCardStatusUpdate = (status) => {
+      setCardAnchorEl(null);
+      if (status === 'shipping') {
+        setOpenTrackingDialog(true);
+      } else {
+        handleStatusUpdate(order.id, status);
+      }
+    };
+
+    const availableStatuses = statusFlow[order.status]?.filter(s => {
+      if (s === 'shipping' && order.tracking_number) return false;
+      return true;
+    }) || [];
+
+    return (
+      <Card sx={{ mb: 1.5, borderRadius: 2, border: '1px solid #e2e8f0' }}>
+        <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+          <Stack spacing={1.5}>
+            {/* Header */}
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.85rem' }}>
+                #{String(order.id).padStart(6, '0')}
+              </Typography>
+              <Chip
+                label={formatStatus(order.status)}
+                color={statusColors[order.status] || 'default'}
+                size="small"
+                sx={{ fontSize: '0.6rem', height: 24 }}
+              />
+            </Stack>
+
+            <Divider />
+
+            {/* Customer */}
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <Avatar sx={{ width: 32, height: 32, bgcolor: '#2563eb', fontSize: '0.8rem', fontWeight: 700 }}>
+                {order.customer?.charAt(0)?.toUpperCase() || '?'}
+              </Avatar>
+              <Box flex={1}>
+                <Typography variant="body2" fontWeight={600} fontSize="0.8rem">
+                  {order.customer || 'N/A'}
+                </Typography>
+                <Typography variant="caption" color="#94a3b8" fontSize="0.65rem">
+                  {order.items?.length || 0} item(s)
+                </Typography>
+              </Box>
+              <Typography fontWeight={700} color="#059669" fontSize="1rem">
+                {formatPrice(order.total)}
+              </Typography>
+            </Stack>
+
+            {/* Date & Delivery */}
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography variant="caption" color="#94a3b8" fontSize="0.65rem">
+                {formatDate(order.created_at)}
+              </Typography>
+              {order.tracking_number ? (
+                <Chip
+                  icon={<LocalShipping sx={{ fontSize: 12 }} />}
+                  label={getDeliveryLabel(order.tracking_number)}
+                  size="small"
+                  variant="outlined"
+                  color="primary"
+                  sx={{ fontSize: '0.55rem', height: 20 }}
+                />
+              ) : (
+                <Typography variant="caption" color="#94a3b8" fontSize="0.6rem">
+                  Not shipped
+                </Typography>
+              )}
+            </Stack>
+
+            {/* Actions */}
+            <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ pt: 1, borderTop: '1px solid #e2e8f0' }}>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<Visibility sx={{ fontSize: 16 }} />}
+                onClick={() => navigate(`/orders/${order.id}`)}
+                sx={{ borderRadius: 2, textTransform: 'none', fontSize: '0.7rem', py: 0.5, px: 1.5 }}
+              >
+                View
+              </Button>
+              {availableStatuses.length > 0 && (
+                <>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<MoreVert sx={{ fontSize: 16 }} />}
+                    onClick={handleCardMenuOpen}
+                    sx={{ borderRadius: 2, textTransform: 'none', fontSize: '0.7rem', py: 0.5, px: 1.5 }}
+                  >
+                    Update
+                  </Button>
+                  {/* ✅ Mobile Card Menu */}
+                  <Menu
+                    anchorEl={cardAnchorEl}
+                    open={Boolean(cardAnchorEl)}
+                    onClose={handleCardMenuClose}
+                    anchorOrigin={{
+                      vertical: 'bottom',
+                      horizontal: 'right',
+                    }}
+                    transformOrigin={{
+                      vertical: 'top',
+                      horizontal: 'right',
+                    }}
+                    PaperProps={{
+                      sx: {
+                        borderRadius: 2,
+                        boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                        minWidth: 180,
+                        mt: 0.5,
+                      }
+                    }}
+                  >
+                    {availableStatuses.map((status) => (
+                      <MenuItem
+                        key={status}
+                        onClick={() => handleCardStatusUpdate(status)}
+                        sx={{ py: 1.2 }}
+                      >
+                        Mark as {formatStatus(status)}
+                      </MenuItem>
+                    ))}
+                  </Menu>
+                </>
+              )}
+            </Stack>
+          </Stack>
+        </CardContent>
+      </Card>
+    );
   };
 
   return (
-    <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh', py: 4 }}>
-      <Container maxWidth="xl">
-
-        <Button startIcon={<ArrowBack />} onClick={() => navigate('/admin')} sx={{ textTransform: 'none', fontWeight: 500, color: '#475569', mb: 2 }}>
+    <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh', py: { xs: 2, sm: 4 } }}>
+      <Container maxWidth="xl" sx={{ px: { xs: 1, sm: 2, md: 3 } }}>
+        {/* Back Button */}
+        <Button
+          startIcon={<ArrowBack />}
+          onClick={() => navigate('/admin')}
+          sx={{ textTransform: 'none', fontWeight: 500, color: '#475569', mb: 2 }}
+        >
           Back to Dashboard
         </Button>
 
         {/* Header */}
-        <Paper elevation={0} sx={{ p: 3, mb: 3, borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white' }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
+        <Paper elevation={0} sx={{ p: { xs: 2, sm: 3 }, mb: 3, borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white' }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} flexWrap="wrap" gap={2}>
             <Box>
-              <Typography variant="h5" fontWeight={700} color="#0f172a">Orders Management</Typography>
+              <Typography variant="h5" fontWeight={700} color="#0f172a" sx={{ fontSize: { xs: '1.1rem', sm: '1.3rem', md: '1.5rem' } }}>
+                Orders
+              </Typography>
+              <Typography variant="body2" color="#94a3b8" sx={{ fontSize: { xs: '0.7rem', sm: '0.8rem' } }}>
+                {total} total order{total !== 1 ? 's' : ''}
+              </Typography>
             </Box>
-            <Stack direction="row" spacing={1}>
-              <FormControl size="small" sx={{ minWidth: 150 }}>
-                <InputLabel>Status</InputLabel>
-                <Select value={statusFilter} label="Status" onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} sx={{ borderRadius: 2 }}>
-                  <MenuItem value="all">All Orders</MenuItem>
-                  <MenuItem value="pending">Pending</MenuItem>
-                  <MenuItem value="confirmed">Confirmed</MenuItem>
-                  <MenuItem value="waiting_payment">Waiting Payment</MenuItem>
-                  <MenuItem value="paid">Paid</MenuItem>
-                  <MenuItem value="purchasing">Purchasing</MenuItem>
-                  <MenuItem value="shipping">Shipping</MenuItem>
-                  <MenuItem value="completed">Completed</MenuItem>
-                  <MenuItem value="cancelled">Cancelled</MenuItem>
-                </Select>
-              </FormControl>
-              <Button startIcon={<Refresh />} onClick={fetchOrders} size="small" sx={{ borderRadius: 2, textTransform: 'none' }}>Refresh</Button>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <TextField
+                select
+                size="small"
+                value={statusFilter}
+                onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+                sx={{ 
+                  minWidth: { xs: 130, sm: 160 },
+                  '& .MuiOutlinedInput-root': { borderRadius: 2 },
+                  '& .MuiSelect-select': { fontSize: { xs: '0.7rem', sm: '0.8rem' }, py: { xs: 0.8, sm: 1 } }
+                }}
+              >
+                <MenuItem value="all">All Orders</MenuItem>
+                <MenuItem value="pending">Pending</MenuItem>
+                <MenuItem value="confirmed">Confirmed</MenuItem>
+                <MenuItem value="waiting_payment">Waiting Payment</MenuItem>
+                <MenuItem value="paid">Paid</MenuItem>
+                <MenuItem value="purchasing">Purchasing</MenuItem>
+                <MenuItem value="shipping">Shipping</MenuItem>
+                <MenuItem value="completed">Completed</MenuItem>
+                <MenuItem value="cancelled">Cancelled</MenuItem>
+              </TextField>
+              <Button 
+                startIcon={<Refresh />} 
+                onClick={fetchOrders} 
+                size="small" 
+                sx={{ borderRadius: 2, textTransform: 'none', fontSize: { xs: '0.7rem', sm: '0.8rem' } }}
+              >
+                Refresh
+              </Button>
             </Stack>
+          </Stack>
+
+          {/* Search */}
+          <Stack direction="row" spacing={2} mt={2} flexWrap="wrap" useFlexGap>
+            <TextField
+              placeholder="Search by order ID or customer..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              size="small"
+              sx={{
+                flex: 1,
+                minWidth: { xs: '100%', sm: 250, md: 400 },
+                maxWidth: { xs: '100%', sm: 400 },
+              }}
+              InputProps={{
+                startAdornment: <InputAdornment position="start"><Search sx={{ color: '#94a3b8' }} /></InputAdornment>,
+                endAdornment: search && (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={handleClearSearch}><Clear fontSize="small" /></IconButton>
+                  </InputAdornment>
+                ),
+                sx: { borderRadius: 2 },
+              }}
+            />
+            {debouncedSearch && (
+              <Chip
+                label={`"${debouncedSearch}"`}
+                size="small"
+                onDelete={handleClearSearch}
+                sx={{ bgcolor: '#eff6ff', color: '#2563eb' }}
+              />
+            )}
           </Stack>
         </Paper>
 
-        {/* Orders Table */}
-        <Paper elevation={0} sx={{ borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white', overflow: 'hidden' }}>
-          <TableContainer>
-            <Table size="small">
-              <TableHead>
-                <TableRow sx={{ bgcolor: '#f8fafc' }}>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Order</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Customer</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569', display: { xs: 'none', lg: 'table-cell' } }}>Items</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Total</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Status</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569', display: { xs: 'none', md: 'table-cell' } }}>Date</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Delivery</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }} align="center">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {loading ? (
-                  <TableRow><TableCell colSpan={8} align="center" sx={{ py: 8 }}><CircularProgress /></TableCell></TableRow>
-                ) : orders.length === 0 ? (
-                  <TableRow><TableCell colSpan={8} align="center" sx={{ py: 8 }}><Typography color="#94a3b8">No orders found</Typography></TableCell></TableRow>
-                ) : (
-                  orders.map((order) => (
-                    <TableRow key={order.id} hover>
-                      <TableCell sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: '0.8rem' }}>
-                        #{String(order.id).padStart(6, '0')}
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" fontWeight={500} fontSize="0.8rem">
-                          {order.customer || 'N/A'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>
-                        {order.items?.length || 0} item(s)
-                      </TableCell>
-                      <TableCell>
-                        <Typography fontWeight={600} color="#059669" fontSize="0.8rem">
-                          {formatPrice(order.total)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Chip label={formatStatus(order.status)} color={statusColors[order.status] || 'default'} size="small" sx={{ fontSize: '0.7rem' }} />
-                      </TableCell>
-                      <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-                        <Typography variant="body2" color="#64748b" fontSize="0.75rem">
-                          {formatDate(order.created_at)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        {order.tracking_number ? (
-                          <Stack spacing={0.3}>
-                            <Chip
-                              icon={<LocalShipping sx={{ fontSize: 12 }} />}
-                              label={getDeliveryLabel(order.tracking_number)}
-                              size="small"
-                              variant="outlined"
-                              color="primary"
-                              sx={{ fontSize: '0.65rem', height: 22 }}
-                            />
-                            {getTrackingId(order.tracking_number) && (
-                              <Typography variant="caption" color="#64748b" sx={{ fontSize: '0.6rem' }}>
-                                ID: {getTrackingId(order.tracking_number)}
-                              </Typography>
-                            )}
-                            {getTrackingPhone(order.tracking_number) && (
-                              <Typography variant="caption" color="#64748b" sx={{ fontSize: '0.6rem' }}>
-                                📞 {getTrackingPhone(order.tracking_number)}
-                              </Typography>
-                            )}
-                          </Stack>
-                        ) : (
-                          <Typography variant="caption" color="#94a3b8" fontSize="0.7rem">-</Typography>
-                        )}
-                      </TableCell>
-                      <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
-                        <Tooltip title="View Details">
-                          <IconButton size="small" onClick={() => navigate(`/orders/${order.id}`)} color="primary">
-                            <Visibility fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Update Status">
-                          <span>
-                            <IconButton
-                              size="small"
-                              onClick={(e) => { setAnchorEl(e.currentTarget); setSelectedOrder(order); }}
-                              disabled={!statusFlow[order.status] || statusFlow[order.status].length === 0}
-                            >
-                              <MoreVert fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-          {totalPages > 1 && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 2, borderTop: '1px solid #e2e8f0' }}>
-              <Pagination count={totalPages} page={page} onChange={(e, p) => setPage(p)} color="primary" showFirstButton showLastButton />
-            </Box>
-          )}
-        </Paper>
+        {/* Orders */}
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+            <CircularProgress />
+          </Box>
+        ) : orders.length === 0 ? (
+          <Paper elevation={0} sx={{ borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white', p: 6, textAlign: 'center' }}>
+            <Typography variant="h6" color="#94a3b8">No orders found</Typography>
+          </Paper>
+        ) : isMobile ? (
+          // ✅ Mobile Card View
+          <Box>
+            {orders.map((order) => (
+              <MobileOrderCard key={order.id} order={order} />
+            ))}
+          </Box>
+        ) : (
+          // ✅ Tablet/Desktop Table View
+          <Paper elevation={0} sx={{ borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white', overflow: 'hidden' }}>
+            <ResponsiveTable
+              columns={columns}
+              data={orders}
+              actions={rowActions}
+              emptyMessage="No orders found"
+            />
+          </Paper>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 2, mt: 2 }}>
+            <Pagination
+              count={totalPages}
+              page={page}
+              onChange={(e, p) => setPage(p)}
+              color="primary"
+              showFirstButton
+              showLastButton
+              size={isMobile ? 'small' : 'medium'}
+            />
+          </Box>
+        )}
       </Container>
 
-      {/* Status Update Menu */}
-      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)}>
-        {selectedOrder && (() => {
-          // Get FRESH order data from orders array
-          const freshOrder = orders.find(o => o.id === selectedOrder.id);
-          if (!freshOrder) return null;
-
-          // Get available statuses for this order
-          const availableStatuses = statusFlow[freshOrder.status] || [];
-
-          // Filter out "shipping" if tracking already exists
-          const filteredStatuses = availableStatuses.filter(status => {
-            if (status === 'shipping' && freshOrder.tracking_number) {
-              return false; // Hide it
-            }
-            return true;
-          });
-
-          // If nothing to show, close the menu
-          if (filteredStatuses.length === 0) {
-            return (
-              <MenuItem disabled>
-                <Typography variant="body2" color="text.secondary">No actions available</Typography>
-              </MenuItem>
-            );
+      {/* ✅ Main Status Menu - for desktop/tablet */}
+      <Menu
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={() => setAnchorEl(null)}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+            minWidth: 180,
+            mt: 0.5,
           }
-
-          return filteredStatuses.map((status) => (
-            <MenuItem key={status} onClick={() => {
-              setAnchorEl(null); // Close menu first
+        }}
+      >
+        {selectedOrder && statusFlow[selectedOrder.status]?.filter(s => {
+          if (s === 'shipping' && selectedOrder.tracking_number) return false;
+          return true;
+        }).map((status) => (
+          <MenuItem
+            key={status}
+            onClick={() => {
+              setAnchorEl(null);
               if (status === 'shipping') {
                 setOpenTrackingDialog(true);
               } else {
-                handleStatusUpdate(freshOrder.id, status);
+                handleStatusUpdate(selectedOrder.id, status);
               }
-            }}>
-              Mark as {formatStatus(status)}
-            </MenuItem>
-          ));
-        })()}
+            }}
+            sx={{ py: 1.2 }}
+          >
+            Mark as {formatStatus(status)}
+          </MenuItem>
+        ))}
+        {selectedOrder && (!statusFlow[selectedOrder.status] || statusFlow[selectedOrder.status].filter(s => {
+          if (s === 'shipping' && selectedOrder.tracking_number) return false;
+          return true;
+        }).length === 0) && (
+          <MenuItem disabled>
+            <Typography variant="body2" color="text.secondary">No actions available</Typography>
+          </MenuItem>
+        )}
       </Menu>
 
       {/* Tracking Dialog */}
-      <Dialog open={openTrackingDialog} onClose={() => setOpenTrackingDialog(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
-        <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>Add Tracking Information</DialogTitle>
+      <Dialog open={openTrackingDialog} onClose={() => setOpenTrackingDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>Add Tracking Information</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary" mb={2.5}>
-            Order #{selectedOrder?.id} • Total: ${Number(selectedOrder?.total || 0).toFixed(2)}
+          <Typography variant="body2" color="text.secondary" mb={2}>
+            Order #{selectedOrder?.id} • Total: {formatPrice(selectedOrder?.total)}
           </Typography>
-
-          <Stack spacing={2.5}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Delivery Service</InputLabel>
-              <Select value={deliveryService} onChange={(e) => setDeliveryService(e.target.value)} label="Delivery Service" sx={{ borderRadius: 2 }}>
-                <MenuItem value="grab_express">
-                  <Stack direction="row" spacing={1.5} alignItems="center">
-                    <Box sx={{ width: 28, height: 28, borderRadius: 1, bgcolor: '#00B14F', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.7rem' }}>Grab</Box>
-                    <Box>
-                      <Typography variant="body2" fontWeight={600}>Grab Express</Typography>
-                      <Typography variant="caption" color="text.secondary">Car Delivery</Typography>
-                    </Box>
-                  </Stack>
-                </MenuItem>
-                <MenuItem value="grab_bike">
-                  <Stack direction="row" spacing={1.5} alignItems="center">
-                    <Box sx={{ width: 28, height: 28, borderRadius: 1, bgcolor: '#00B14F', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.7rem' }}>Grab</Box>
-                    <Box>
-                      <Typography variant="body2" fontWeight={600}>Grab Bike</Typography>
-                      <Typography variant="caption" color="text.secondary">Motorcycle Delivery</Typography>
-                    </Box>
-                  </Stack>
-                </MenuItem>
-                <MenuItem value="nham24">
-                  <Stack direction="row" spacing={1.5} alignItems="center">
-                    <Box sx={{ width: 28, height: 28, borderRadius: 1, bgcolor: '#E94E1B', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.65rem' }}>N24</Box>
-                    <Box>
-                      <Typography variant="body2" fontWeight={600}>Nham24 Delivery</Typography>
-                      <Typography variant="caption" color="text.secondary">Express Delivery</Typography>
-                    </Box>
-                  </Stack>
-                </MenuItem>
-                <MenuItem value="virak_buntham">
-                  <Stack direction="row" spacing={1.5} alignItems="center">
-                    <Box sx={{ width: 28, height: 28, borderRadius: 1, bgcolor: '#003D7A', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.6rem' }}>VB</Box>
-                    <Box>
-                      <Typography variant="body2" fontWeight={600}>Virak Buntham Express</Typography>
-                      <Typography variant="caption" color="text.secondary">Nationwide Delivery</Typography>
-                    </Box>
-                  </Stack>
-                </MenuItem>
-                <MenuItem value="jnt_express">
-                  <Stack direction="row" spacing={1.5} alignItems="center">
-                    <Box sx={{ width: 28, height: 28, borderRadius: 1, bgcolor: '#EE2A2F', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.65rem' }}>J&T</Box>
-                    <Box>
-                      <Typography variant="body2" fontWeight={600}>J&T Express</Typography>
-                      <Typography variant="caption" color="text.secondary">Courier Service</Typography>
-                    </Box>
-                  </Stack>
-                </MenuItem>
-                <MenuItem value="dhl">
-                  <Stack direction="row" spacing={1.5} alignItems="center">
-                    <Box sx={{ width: 28, height: 28, borderRadius: 1, bgcolor: '#FFCC00', color: '#D40511', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.65rem' }}>DHL</Box>
-                    <Box>
-                      <Typography variant="body2" fontWeight={600}>DHL Express</Typography>
-                      <Typography variant="caption" color="text.secondary">International Shipping</Typography>
-                    </Box>
-                  </Stack>
-                </MenuItem>
-                <MenuItem value="other">
-                  <Stack direction="row" spacing={1.5} alignItems="center">
-                    <Box sx={{ width: 28, height: 28, borderRadius: 1, bgcolor: '#64748B', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.65rem' }}>?</Box>
-                    <Box>
-                      <Typography variant="body2" fontWeight={600}>Other</Typography>
-                      <Typography variant="caption" color="text.secondary">Custom Delivery</Typography>
-                    </Box>
-                  </Stack>
-                </MenuItem>
-              </Select>
-            </FormControl>
-
-            <TextField fullWidth label="Tracking Number / Booking ID" value={trackingNumber}
-              onChange={(e) => setTrackingNumber(e.target.value)} autoFocus size="small"
-              placeholder="Enter tracking or booking number"
-              helperText="Enter the tracking number from the delivery service"
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
-
-            <TextField fullWidth label="Driver Phone Number (Optional)" value={deliveryPhone}
-              onChange={(e) => setDeliveryPhone(e.target.value)} size="small"
-              placeholder="Enter driver's phone number for customer contact"
-              InputProps={{
-                startAdornment: <Phone sx={{ color: '#94a3b8', mr: 1, fontSize: 18 }} />,
-              }}
-              helperText="Customer can contact the driver directly via this number"
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
-
-            <TextField fullWidth label="Delivery Notes (Optional)" value={deliveryNotes}
-              onChange={(e) => setDeliveryNotes(e.target.value)} multiline rows={2} size="small"
-              placeholder="E.g., Driver name, estimated delivery time, special instructions..."
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+          <Stack spacing={2.5} sx={{ mt: 1 }}>
+            <TextField
+              select
+              fullWidth
+              size="small"
+              label="Delivery Service"
+              value={deliveryService}
+              onChange={(e) => setDeliveryService(e.target.value)}
+            >
+              <MenuItem value="grab_express">Grab Express</MenuItem>
+              <MenuItem value="grab_bike">Grab Bike</MenuItem>
+              <MenuItem value="nham24">Nham24</MenuItem>
+              <MenuItem value="virak_buntham">Virak Buntham</MenuItem>
+              <MenuItem value="jnt_express">J&T Express</MenuItem>
+              <MenuItem value="dhl">DHL</MenuItem>
+              <MenuItem value="other">Other</MenuItem>
+            </TextField>
+            <TextField
+              fullWidth
+              size="small"
+              label="Tracking Number"
+              value={trackingNumber}
+              onChange={(e) => setTrackingNumber(e.target.value)}
+              placeholder="Enter tracking number"
+            />
+            <TextField
+              fullWidth
+              size="small"
+              label="Driver Phone (Optional)"
+              value={deliveryPhone}
+              onChange={(e) => setDeliveryPhone(e.target.value)}
+              placeholder="Enter driver's phone number"
+            />
+            <TextField
+              fullWidth
+              size="small"
+              label="Notes (Optional)"
+              multiline
+              rows={2}
+              value={deliveryNotes}
+              onChange={(e) => setDeliveryNotes(e.target.value)}
+              placeholder="Special instructions..."
+            />
           </Stack>
         </DialogContent>
-        <DialogActions sx={{ p: 3, pt: 0 }}>
-          <Button onClick={() => setOpenTrackingDialog(false)} sx={{ borderRadius: 2, textTransform: 'none' }}>Cancel</Button>
-          <Button variant="contained" onClick={handleShippingUpdate} disabled={!trackingNumber.trim() || !deliveryService}
-            sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600, boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)' }}>
-            Update & Mark as Shipping
+        <DialogActions sx={{ p: 3, pt: 0, flexDirection: { xs: 'column', sm: 'row' }, gap: { xs: 1, sm: 0 } }}>
+          <Button onClick={() => setOpenTrackingDialog(false)} sx={{ width: { xs: '100%', sm: 'auto' }, borderRadius: 2, textTransform: 'none' }}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleShippingUpdate}
+            disabled={!trackingNumber.trim() || !deliveryService}
+            sx={{ width: { xs: '100%', sm: 'auto' }, borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
+          >
+            Update & Ship
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar(s => ({ ...s, open: false }))}>
-        <Alert severity={snackbar.severity} variant="filled" sx={{ borderRadius: 2 }}>{snackbar.message}</Alert>
+      {/* Snackbar */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={3000}
+        onClose={() => setSnackbar(s => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert severity={snackbar.severity} variant="filled" sx={{ borderRadius: 2 }}>
+          {snackbar.message}
+        </Alert>
       </Snackbar>
     </Box>
   );

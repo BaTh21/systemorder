@@ -1,24 +1,28 @@
+from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from pydantic import BaseModel
-from app.core.deps import get_current_user
-from app.schemas.auth import UserUpdate
+from app.core.deps import admin_required, get_current_user
+from app.core.config import settings
+from app.schemas.auth import UserUpdate, AdminUserApproval
 from app.core.security import (
     verify_password,
     get_password_hash,
     create_access_token
 )
-from app.models.user import User
+from app.models.user import User, UserRole, UserStatus
 from app.schemas.auth import (
     UserRegister,
     UserLogin,
     Token
 )
+from app.services.notification_service import send_account_approved_notification, send_account_rejected_notification
+from app.services.telegram import send_telegram_message
 
 
 router = APIRouter(
@@ -34,105 +38,111 @@ class PasswordChange(BaseModel):
     current_password: str
     new_password: str
 
-@router.post(
-    "/register",
-    response_model=Token
-)
+@router.post("/register")
 async def register(
-    data: UserRegister,
+    data: UserRegister, 
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ):
-
-    result = await db.execute(
-        select(User).where(
-            User.email == data.email
-        )
-    )
-
-    existing_user = result.scalars().first()
-
-    if existing_user:
-        raise HTTPException(
-            status_code=400,
-            detail="Email already registered"
-        )
-
-
+    """Register a new user - requires admin approval"""
+    
+    print(f"📝 Registration attempt: {data.email}")
+    print(f"   Full name: {data.full_name}")
+    print(f"   Phone: {data.phone}")
+    
+    # Check if email exists
+    result = await db.execute(select(User).where(User.email == data.email))
+    if result.scalars().first():
+        raise HTTPException(400, "Email already registered")
+    
+    # Check if phone exists
+    result = await db.execute(select(User).where(User.phone == data.phone))
+    if result.scalars().first():
+        raise HTTPException(400, "Phone number already registered")
+    
+    # Create user
     user = User(
         email=data.email,
         hashed_password=get_password_hash(data.password),
         full_name=data.full_name,
-        phone=data.phone
+        phone=data.phone,
+        role=UserRole.customer,
+        status=UserStatus.pending,
+        is_active=True
     )
-
-
+    
     db.add(user)
-
     await db.commit()
-
     await db.refresh(user)
+    
+    print(f"✅ User created: ID={user.id}, Name={user.full_name}")
+    
+    # Notify admins (optional)
+    if settings.TELEGRAM_ADMIN_CHAT_ID:
+        from app.services.telegram import send_telegram_message
+        background_tasks.add_task(
+            send_telegram_message,
+            settings.TELEGRAM_ADMIN_CHAT_ID,
+            f"""
+🆕 <b>New User Registration Pending</b>
 
+👤 <b>Name:</b> {user.full_name}
+📧 <b>Email:</b> {user.email}
+📱 <b>Phone:</b> {user.phone}
+🆔 <b>User ID:</b> {user.id}
 
-    token = create_access_token(
-        {
-            "sub": str(user.id)
-        }
-    )
-
-
+🔗 <b>Approve:</b> Go to Admin Dashboard
+"""
+        )
+    
     return {
-        "access_token": token,
-        "token_type": "bearer"
+        "message": "Registration successful! Your account is pending admin approval.",
+        "user_id": user.id,
+        "status": "pending",
+        "requires_admin_approval": True
     }
 
 
-
-@router.post(
-    "/login",
-    response_model=Token
-)
+# ============================================
+# LOGIN
+# ============================================
+@router.post("/login", response_model=Token)
 async def login(
     data: UserLogin,
     db: AsyncSession = Depends(get_db)
 ):
-
-    result = await db.execute(
-        select(User).where(
-            User.email == data.email
-        )
-    )
-
+    """Login user - check approval status"""
+    
+    result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalars().first()
-
-
+    
     if not user:
+        raise HTTPException(401, "Invalid credentials")
+    
+    if not verify_password(data.password, user.hashed_password):
+        raise HTTPException(401, "Invalid credentials")
+    
+    # Check approval status
+    if user.status == UserStatus.pending:
         raise HTTPException(
-            status_code=401,
-            detail="Invalid credentials"
+            403, 
+            "⏳ Your account is pending admin approval. You will be notified via Telegram once approved."
         )
-
-
-    if not verify_password(
-        data.password,
-        user.hashed_password
-    ):
+    
+    if user.status == UserStatus.rejected:
         raise HTTPException(
-            status_code=401,
-            detail="Invalid credentials"
+            403, 
+            f"❌ Your account was not approved: {user.rejection_reason or 'No reason provided'}"
         )
-
-
-    token = create_access_token(
-        {
-            "sub": str(user.id)
-        }
-    )
-
-
-    print("LOGIN USER:", user.id)
-    print("JWT CREATED:", token)
-
-
+    
+    if user.status == UserStatus.suspended:
+        raise HTTPException(403, "Your account has been suspended. Please contact support.")
+    
+    if not user.is_active:
+        raise HTTPException(403, "Your account is inactive. Please contact support.")
+    
+    token = create_access_token({"sub": str(user.id)})
+    
     return {
         "access_token": token,
         "token_type": "bearer"
@@ -258,3 +268,137 @@ async def upload_avatar(
         print(f"Avatar upload error: {e}")
         raise HTTPException(500, f"Upload failed: {str(e)}")
 
+# ============================================
+# ADMIN: Approve User
+# ============================================
+@router.put("/admin/users/{user_id}/approve")
+async def approve_user(
+    user_id: int,
+    data: AdminUserApproval,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(admin_required)
+):
+    """Admin: Approve or reject a user - Sends Telegram & In-App notifications"""
+    
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalars().first()
+    
+    if not user:
+        raise HTTPException(404, "User not found")
+    
+    if user.status != UserStatus.pending:
+        raise HTTPException(400, f"User is already {user.status.value}")
+    
+    # Update user status
+    new_status = UserStatus(data.status)
+    user.status = new_status
+    user.approved_by_id = current_user.id
+    user.approved_at = datetime.utcnow()
+    
+    if data.rejection_reason and data.status == 'rejected':
+        user.rejection_reason = data.rejection_reason
+    
+    await db.commit()
+    await db.refresh(user)
+    
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # SEND NOTIFICATIONS (Telegram + In-App)
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    if data.status == 'approved':
+        # Send account approved notification
+        background_tasks.add_task(
+            send_account_approved_notification,
+            user.id,
+            user.full_name
+        )
+    else:
+        # Send account rejected notification
+        background_tasks.add_task(
+            send_account_rejected_notification,
+            user.id,
+            user.full_name,
+            data.rejection_reason or "No reason provided"
+        )
+    
+    # Notify admin who made the decision
+    if settings.TELEGRAM_ADMIN_CHAT_ID:
+        admin_message = f"""
+📋 <b>User {user.status.value.upper()}</b>
+
+👤 <b>User:</b> {user.full_name}
+📧 <b>Email:</b> {user.email}
+📱 <b>Phone:</b> {user.phone}
+🆔 <b>ID:</b> {user.id}
+👨‍💼 <b>Approved by:</b> {current_user.full_name}
+
+Status: {"✅ Approved" if user.status == UserStatus.approved else "❌ Rejected"}
+{f"📝 Reason: {data.rejection_reason}" if data.status == 'rejected' else ""}
+"""
+        background_tasks.add_task(
+            send_telegram_message,
+            settings.TELEGRAM_ADMIN_CHAT_ID,
+            admin_message
+        )
+    
+    return {
+        "message": f"User {user.status.value} successfully",
+        "user_id": user.id,
+        "status": user.status.value,
+        "notifications_sent": {
+            "in_app": True,
+            "telegram": bool(user.telegram_chat_id)
+        }
+    }
+
+
+# ============================================
+# HELPER: Notify Admins
+# ============================================
+async def notify_admins_new_user(user_id: int, full_name: str, email: str, phone: str):
+    """Notify all admins about new registration via Telegram"""
+    
+    from app.core.database import async_session
+    
+    async with async_session() as db:
+        result = await db.execute(
+            select(User).where(User.role == UserRole.admin)
+        )
+        admins = result.scalars().all()
+        
+        message = f"""
+🆕 <b>New User Registration Pending</b>
+
+👤 <b>Name:</b> {full_name}
+📧 <b>Email:</b> {email}
+📱 <b>Phone:</b> {phone}
+🆔 <b>User ID:</b> {user_id}
+
+🔗 <b>Approve:</b> /admin/pending-users
+
+<i>Please review and approve the user.</i>
+"""
+        
+        for admin in admins:
+            if admin.telegram_chat_id:
+                await send_telegram_message(admin.telegram_chat_id, message)
+                
+
+@router.post("/register")
+async def register(
+    request: Request,  # ✅ Add this
+    data: UserRegister,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+):
+    # Get raw body for debugging
+    body = await request.body()
+    print(f"📝 Raw request body: {body}")
+    
+    # Log parsed data
+    print(f"📝 Parsed data: {data}")
+    print(f"   Email: {data.email}")
+    print(f"   Full name: {data.full_name}")
+    print(f"   Phone: {data.phone}")
+    print(f"   Password length: {len(data.password)}")

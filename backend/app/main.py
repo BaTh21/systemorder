@@ -1,6 +1,8 @@
 # app/main.py
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.routers import auth, products, categories, cart, orders, admin, telegram
@@ -11,11 +13,14 @@ from app.core.security import get_password_hash
 from sqlalchemy import select, create_engine, text
 import os
 import asyncio
+from starlette import status
+
 
 from app.routers import contact
 from app.routers import payment
 from app.routers import chat_ws
 from app.routers import chat
+from app.routers import notifications
 
 # Create upload directories
 os.makedirs("uploads/products", exist_ok=True)
@@ -34,6 +39,29 @@ app.add_middleware(
 )
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle validation errors with detailed messages"""
+    errors = []
+    for error in exc.errors():
+        field = ".".join(str(loc) for loc in error["loc"])
+        errors.append({
+            "field": field,
+            "message": error["msg"],
+            "type": error["type"],
+            "input": error.get("input")
+        })
+    
+    print(f"❌ Validation Error: {errors}")
+    
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "detail": "Validation error",
+            "errors": errors
+        }
+    )
 
 @app.get("/")
 async def root():
@@ -98,3 +126,4 @@ app.include_router(contact.router, prefix="/api")
 app.include_router(payment.router, prefix="/api")
 app.include_router(chat_ws.router)
 app.include_router(chat.router, prefix="/api")
+app.include_router(notifications.router, prefix="/api")

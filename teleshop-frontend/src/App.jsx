@@ -23,6 +23,7 @@ import AdminCategories from './pages/admin/AdminCategories';
 import ContactPage from './pages/ContactPage';
 import ChatSupport from './components/chat/ChatSupport';
 import AdminChat from './pages/admin/AdminChat';
+import AdminPendingUsers from './pages/admin/AdminPendingUsers';
 
 
 const theme = createTheme({
@@ -90,6 +91,7 @@ function App() {
                 <Route path="/admin/categories" element={<AdminCategories />} />
                 <Route path="/contact" element={<ContactPage />} />
                 <Route path="/admin/chat" element={<AdminChat />} />
+                <Route path="/admin/pending-users" element={<AdminPendingUsers />} />
               </Routes>
             </Layout>
           </CartProvider>
