@@ -123,7 +123,7 @@ const AdminDashboard = () => {
     {
       title: 'Total Revenue',
       value: `$${(stats.total_revenue || 0).toLocaleString()}`,
-      subtitle: `✅ $${(stats.completed_revenue || 0).toLocaleString()} completed | 🔄 $${(stats.active_revenue || 0).toLocaleString()} active`,
+      subtitle: `$${(stats.completed_revenue || 0).toLocaleString()} completed | $${(stats.active_revenue || 0).toLocaleString()} active`,
       icon: <AttachMoney sx={{ fontSize: { xs: 24, sm: 40 } }} />,
       color: '#2e7d32',
       bgColor: '#e8f5e9',
@@ -132,7 +132,7 @@ const AdminDashboard = () => {
     {
       title: 'Orders',
       value: stats.total_orders || 0,
-      subtitle: `✅ ${stats.completed_orders || 0} done | ❌ ${stats.cancelled_orders || 0} cancelled | ⏳ ${stats.pending_orders || 0} pending`,
+      subtitle: `${stats.completed_orders || 0} done | ${stats.cancelled_orders || 0} cancelled | ${stats.pending_orders || 0} pending`,
       icon: <ShoppingCart sx={{ fontSize: { xs: 24, sm: 40 } }} />,
       color: '#1976d2',
       bgColor: '#e3f2fd',
@@ -141,7 +141,7 @@ const AdminDashboard = () => {
     {
       title: 'Products',
       value: stats.active_products || 0,
-      subtitle: `⚠️ ${stats.low_stock || 0} low stock | 🚫 ${stats.out_of_stock || 0} out`,
+      subtitle: `${stats.low_stock || 0} low stock | ${stats.out_of_stock || 0} out`,
       icon: <Inventory sx={{ fontSize: { xs: 24, sm: 40 } }} />,
       color: '#ed6c02',
       bgColor: '#fff3e0',
@@ -174,7 +174,6 @@ const AdminDashboard = () => {
       bgColor: '#eef2ff',
       link: '/admin/chat'
     },
-    // ✅ ADD PENDING APPROVALS CARD
     {
       title: 'Pending Approvals',
       value: pendingCount,
@@ -357,90 +356,6 @@ const AdminDashboard = () => {
           </Card>
         </Grid>
       </Grid>
-
-      {/* Recent Orders with Pagination */}
-      <Card>
-        <CardContent sx={{ p: { xs: 1.5, sm: 2, md: 3 } }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-            <Typography sx={{ fontSize: { xs: '0.9rem', sm: '1rem', md: '1.25rem' }, fontWeight: 600 }}>
-              📋 Recent Orders <Chip label="ASC" size="small" color="primary" sx={{ ml: 1, fontSize: { xs: '0.6rem', sm: '0.75rem' } }} />
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Page {orderPage} of {totalOrderPages}
-            </Typography>
-          </Stack>
-
-          <TableContainer component={Paper} variant="outlined">
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ fontWeight: 600, fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>Order ID</TableCell>
-                  <TableCell sx={{ fontWeight: 600, fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>Customer</TableCell>
-                  <TableCell sx={{ fontWeight: 600, fontSize: { xs: '0.65rem', sm: '0.75rem' }, display: { xs: 'none', sm: 'table-cell' } }}>Total</TableCell>
-                  <TableCell sx={{ fontWeight: 600, fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>Status</TableCell>
-                  <TableCell sx={{ fontWeight: 600, fontSize: { xs: '0.65rem', sm: '0.75rem' }, display: { xs: 'none', md: 'table-cell' } }}>Date</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {paginatedOrders.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} align="center">
-                      <Typography variant="body2" color="text.secondary" sx={{ py: 2, fontSize: { xs: '0.7rem', sm: '0.875rem' } }}>
-                        No orders yet
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  paginatedOrders.map((order) => (
-                    <TableRow key={order.id} hover>
-                      <TableCell sx={{ fontFamily: 'monospace', fontSize: { xs: '0.65rem', sm: '0.8rem' } }}>
-                        #{String(order.id).padStart(6, '0')}
-                      </TableCell>
-                      <TableCell sx={{ fontSize: { xs: '0.65rem', sm: '0.8rem' } }}>{order.customer}</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: { xs: '0.65rem', sm: '0.8rem' }, display: { xs: 'none', sm: 'table-cell' } }}>
-                        ${Number(order.total || 0).toLocaleString()}
-                      </TableCell>
-                      <TableCell>
-                        <Chip 
-                          label={formatStatus(order.status)} 
-                          color={statusColors[order.status] || 'default'} 
-                          size="small" 
-                          sx={{ fontSize: { xs: '0.6rem', sm: '0.7rem' } }} 
-                        />
-                      </TableCell>
-                      <TableCell sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' }, display: { xs: 'none', md: 'table-cell' } }}>
-                        {order.created_at ? new Date(order.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'N/A'}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-
-          {/* Pagination */}
-          {sortedRecentOrders.length > ordersPerPage && (
-            <Stack direction="row" justifyContent="center" alignItems="center" spacing={1} mt={2}>
-              <Button size="small" disabled={orderPage === 1} onClick={() => setOrderPage(orderPage - 1)}
-                sx={{ textTransform: 'none', minWidth: 50, fontSize: '0.75rem' }}>← Prev</Button>
-              {Array.from({ length: totalOrderPages }, (_, i) => i + 1).map((pageNum) => (
-                <Chip 
-                  key={pageNum} 
-                  label={pageNum} 
-                  size="small" 
-                  onClick={() => setOrderPage(pageNum)}
-                  color={orderPage === pageNum ? 'primary' : 'default'} 
-                  variant={orderPage === pageNum ? 'filled' : 'outlined'}
-                  sx={{ cursor: 'pointer', minWidth: 28, height: 24, fontWeight: 600, fontSize: '0.7rem' }} 
-                />
-              ))}
-              <Button size="small" disabled={orderPage === totalOrderPages} onClick={() => setOrderPage(orderPage + 1)}
-                sx={{ textTransform: 'none', minWidth: 50, fontSize: '0.75rem' }}>Next →</Button>
-            </Stack>
-          )}
-        </CardContent>
-      </Card>
-
       {loading && dashboardData && (
         <Box sx={{ position: 'fixed', top: 16, right: 16, zIndex: 9999 }}>
           <Chip icon={<CircularProgress size={16} />} label="Refreshing..." color="primary" variant="outlined" />
