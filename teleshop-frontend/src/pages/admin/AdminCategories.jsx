@@ -52,9 +52,9 @@ const AdminCategories = () => {
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'md'));
   
-  const [categories, setCategories] = useState([]);
+  const [allCategories, setAllCategories] = useState([]); // ✅ All categories from API
+  const [categories, setCategories] = useState([]); // ✅ Paginated categories
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState({ open: false, category: null });
   const [formData, setFormData] = useState({ name: '', parent_id: '' });
@@ -64,14 +64,15 @@ const AdminCategories = () => {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   
-  // ✅ Pagination state
+  // ✅ Pagination state - 5 items per page (Client-side)
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCategories, setTotalCategories] = useState(0);
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const limit = 10;
+  const limit = 5;
 
+  // ✅ Debounce search
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search);
@@ -80,42 +81,64 @@ const AdminCategories = () => {
     return () => clearTimeout(timer);
   }, [search]);
 
+  // ✅ Fetch all categories once
   useEffect(() => {
-    fetchCategories();
-  }, [page, debouncedSearch]);
+    fetchAllCategories();
+  }, []);
 
-  const fetchCategories = async () => {
+  // ✅ Apply pagination and search filter when data changes
+  useEffect(() => {
+    applyPagination();
+  }, [page, debouncedSearch, allCategories]);
+
+  const fetchAllCategories = async () => {
     setLoading(true);
     try {
-      // ✅ Use /admin/categories with pagination params
-      const response = await api.get('/admin/categories', {
-        params: { 
-          page, 
-          limit, 
-          search: debouncedSearch || undefined 
-        }
-      });
+      console.log('📦 Fetching all categories...');
+      const response = await api.get('/categories');
       
-      // Handle both paginated and non-paginated responses
+      let categoriesData = [];
       if (Array.isArray(response.data)) {
-        setCategories(response.data);
-        setTotalCategories(response.data.length);
-        setTotalPages(Math.ceil(response.data.length / limit));
+        categoriesData = response.data;
       } else if (response.data?.items) {
-        setCategories(response.data.items);
-        setTotalCategories(response.data.total || response.data.items.length);
-        setTotalPages(response.data.total_pages || Math.ceil((response.data.total || 0) / limit));
+        categoriesData = response.data.items;
       } else {
-        setCategories([]);
-        setTotalCategories(0);
-        setTotalPages(1);
+        categoriesData = [];
       }
+      
+      console.log('✅ Categories fetched:', categoriesData.length);
+      setAllCategories(categoriesData);
     } catch (error) {
-      console.error('Error:', error);
+      console.error('❌ Error fetching categories:', error);
       setSnackbar({ open: true, message: 'Failed to load categories', severity: 'error' });
+      setAllCategories([]);
     } finally {
       setLoading(false);
     }
+  };
+
+  // ✅ Apply pagination and search filter
+  const applyPagination = () => {
+    let filtered = [...allCategories];
+    
+    // Apply search filter
+    if (debouncedSearch) {
+      filtered = filtered.filter(cat => 
+        cat.name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+        cat.slug.toLowerCase().includes(debouncedSearch.toLowerCase())
+      );
+    }
+    
+    setTotalCategories(filtered.length);
+    setTotalPages(Math.ceil(filtered.length / limit) || 1);
+    
+    // Apply pagination
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    const paginated = filtered.slice(startIndex, endIndex);
+    setCategories(paginated);
+    
+    console.log('📊 Paginated:', paginated.length, 'of', filtered.length);
   };
 
   const handleClearSearch = () => {
@@ -178,7 +201,7 @@ const AdminCategories = () => {
         setSnackbar({ open: true, message: 'Category created!', severity: 'success' });
       }
       setDialog({ open: false, category: null });
-      fetchCategories();
+      fetchAllCategories(); // ✅ Refresh all categories
     } catch (error) {
       const errorMsg = error.response?.data?.detail || 'Failed to save category';
       setSnackbar({ open: true, message: errorMsg, severity: 'error' });
@@ -192,7 +215,7 @@ const AdminCategories = () => {
     try {
       await api.delete(`/admin/categories/${deleteConfirm}`);
       setSnackbar({ open: true, message: 'Category deleted', severity: 'success' });
-      fetchCategories();
+      fetchAllCategories(); // ✅ Refresh all categories
     } catch (error) {
       setSnackbar({ open: true, message: 'Failed to delete category', severity: 'error' });
     } finally {
@@ -200,7 +223,8 @@ const AdminCategories = () => {
     }
   };
 
-  const mainCategories = categories.filter(c => !c.parent_id);
+  // ✅ Main categories for dropdown
+  const mainCategories = allCategories.filter(c => !c.parent_id);
 
   // Columns for ResponsiveTable
   const columns = [
@@ -254,7 +278,7 @@ const AdminCategories = () => {
       key: 'parent_id',
       label: 'Parent',
       render: (value) => {
-        const parent = categories.find(c => c.id === value);
+        const parent = allCategories.find(c => c.id === value);
         return parent ? (
           <Chip 
             label={parent.name} 
@@ -301,97 +325,97 @@ const AdminCategories = () => {
   );
 
   // Mobile Card View
-  const MobileCategoryCard = ({ category }) => (
-    <Card sx={{ mb: 1.5, borderRadius: 2, border: '1px solid #e2e8f0' }}>
-      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-        <Stack spacing={1.5}>
-          {/* Image & Name */}
-          <Stack direction="row" spacing={1.5} alignItems="center">
-            <Avatar 
-              variant="rounded" 
-              src={getImageUrl(category.image_url)} 
-              sx={{ width: 48, height: 48, bgcolor: '#f1f5f9' }}
-            >
-              <ImageIcon />
-            </Avatar>
-            <Box flex={1}>
-              <Typography fontWeight={600} fontSize="0.85rem">
-                {category.name}
-              </Typography>
-              {!category.parent_id && (
-                <Chip 
-                  label="Main Category" 
-                  size="small" 
-                  color="primary" 
-                  variant="outlined" 
-                  sx={{ mt: 0.3, height: 18, fontSize: '0.55rem' }}
-                />
-              )}
-            </Box>
-          </Stack>
+  const MobileCategoryCard = ({ category }) => {
+    const parent = allCategories.find(c => c.id === category.parent_id);
+    
+    return (
+      <Card sx={{ mb: 1.5, borderRadius: 2, border: '1px solid #e2e8f0' }}>
+        <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+          <Stack spacing={1.5}>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <Avatar 
+                variant="rounded" 
+                src={getImageUrl(category.image_url)} 
+                sx={{ width: 48, height: 48, bgcolor: '#f1f5f9' }}
+              >
+                <ImageIcon />
+              </Avatar>
+              <Box flex={1}>
+                <Typography fontWeight={600} fontSize="0.85rem">
+                  {category.name}
+                </Typography>
+                {!category.parent_id && (
+                  <Chip 
+                    label="Main Category" 
+                    size="small" 
+                    color="primary" 
+                    variant="outlined" 
+                    sx={{ mt: 0.3, height: 18, fontSize: '0.55rem' }}
+                  />
+                )}
+              </Box>
+            </Stack>
 
-          <Divider />
+            <Divider />
 
-          {/* Slug & Parent */}
-          <Grid container spacing={1}>
-            <Grid item xs={6}>
-              <Typography variant="caption" color="#94a3b8" display="block">Slug</Typography>
-              <Typography variant="body2" color="text.secondary" fontFamily="monospace" fontSize="0.7rem">
-                {category.slug}
-              </Typography>
+            <Grid container spacing={1}>
+              <Grid item xs={6}>
+                <Typography variant="caption" color="#94a3b8" display="block">Slug</Typography>
+                <Typography variant="body2" color="text.secondary" fontFamily="monospace" fontSize="0.7rem">
+                  {category.slug}
+                </Typography>
+              </Grid>
+              <Grid item xs={6}>
+                <Typography variant="caption" color="#94a3b8" display="block">Parent</Typography>
+                {parent ? (
+                  <Chip 
+                    label={parent.name} 
+                    size="small" 
+                    variant="outlined"
+                    sx={{ fontSize: '0.6rem', height: 20 }}
+                  />
+                ) : (
+                  <Chip 
+                    label="None" 
+                    size="small" 
+                    variant="outlined"
+                    sx={{ fontSize: '0.6rem', height: 20 }}
+                  />
+                )}
+              </Grid>
             </Grid>
-            <Grid item xs={6}>
-              <Typography variant="caption" color="#94a3b8" display="block">Parent</Typography>
-              {category.parent_id ? (
-                <Chip 
-                  label={categories.find(c => c.id === category.parent_id)?.name || 'N/A'} 
-                  size="small" 
-                  variant="outlined"
-                  sx={{ fontSize: '0.6rem', height: 20 }}
-                />
-              ) : (
-                <Chip 
-                  label="None" 
-                  size="small" 
-                  variant="outlined"
-                  sx={{ fontSize: '0.6rem', height: 20 }}
-                />
-              )}
-            </Grid>
-          </Grid>
 
-          {/* Actions */}
-          <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ pt: 1, borderTop: '1px solid #e2e8f0' }}>
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<Edit sx={{ fontSize: 16 }} />}
-              onClick={() => handleOpenEdit(category)}
-              sx={{ borderRadius: 2, textTransform: 'none', fontSize: '0.7rem', py: 0.5, px: 1.5 }}
-            >
-              Edit
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              color="error"
-              startIcon={<Delete sx={{ fontSize: 16 }} />}
-              onClick={() => setDeleteConfirm(category.id)}
-              sx={{ borderRadius: 2, textTransform: 'none', fontSize: '0.7rem', py: 0.5, px: 1.5 }}
-            >
-              Delete
-            </Button>
+            <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ pt: 1, borderTop: '1px solid #e2e8f0' }}>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<Edit sx={{ fontSize: 16 }} />}
+                onClick={() => handleOpenEdit(category)}
+                sx={{ borderRadius: 2, textTransform: 'none', fontSize: '0.7rem', py: 0.5, px: 1.5 }}
+              >
+                Edit
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                startIcon={<Delete sx={{ fontSize: 16 }} />}
+                onClick={() => setDeleteConfirm(category.id)}
+                sx={{ borderRadius: 2, textTransform: 'none', fontSize: '0.7rem', py: 0.5, px: 1.5 }}
+              >
+                Delete
+              </Button>
+            </Stack>
           </Stack>
-        </Stack>
-      </CardContent>
-    </Card>
-  );
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh', py: { xs: 2, sm: 3, md: 4 } }}>
       <Container maxWidth="lg" sx={{ px: { xs: 1, sm: 2, md: 3 } }}>
         
-        {/* Back Button */}
         <Button 
           startIcon={<ArrowBack />} 
           onClick={() => navigate('/admin')} 
@@ -422,7 +446,6 @@ const AdminCategories = () => {
               </Typography>
             </Box>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ width: { xs: '100%', sm: 'auto' } }}>
-              {/* ✅ Search Field */}
               <TextField
                 placeholder="Search categories..."
                 value={search}
@@ -430,8 +453,8 @@ const AdminCategories = () => {
                 size="small"
                 sx={{
                   flex: { xs: 1, sm: 'none' },
-                  minWidth: { xs: 'auto', sm: 180, md: 220 },
-                  maxWidth: { xs: '100%', sm: 220 },
+                  minWidth: { xs: 'auto', sm: 160, md: 200 },
+                  maxWidth: { xs: '100%', sm: 200 },
                   '& .MuiOutlinedInput-root': { borderRadius: 2 },
                   '& .MuiInputBase-input': { fontSize: { xs: '0.7rem', sm: '0.8rem' } }
                 }}
@@ -453,7 +476,7 @@ const AdminCategories = () => {
               
               <Button 
                 startIcon={<Refresh />} 
-                onClick={fetchCategories} 
+                onClick={fetchAllCategories} 
                 size="small" 
                 sx={{ 
                   borderRadius: 2, 
@@ -500,17 +523,17 @@ const AdminCategories = () => {
             textAlign: 'center' 
           }}>
             <ImageIcon sx={{ fontSize: 48, color: '#cbd5e1', mb: 1 }} />
-            <Typography variant="h6" color="#94a3b8">No categories found</Typography>
+            <Typography variant="h6" color="#94a3b8">
+              {search ? 'No categories match your search' : 'No categories found'}
+            </Typography>
           </Paper>
         ) : isMobile ? (
-          // Mobile Card View
           <Box>
             {categories.map((category) => (
               <MobileCategoryCard key={category.id} category={category} />
             ))}
           </Box>
         ) : (
-          // Tablet/Desktop Table View
           <Paper elevation={0} sx={{ 
             borderRadius: { xs: 2, sm: 3 }, 
             border: '1px solid #e2e8f0', 
@@ -526,9 +549,24 @@ const AdminCategories = () => {
           </Paper>
         )}
 
-        {/* ✅ Pagination */}
+        {/* ✅ Pagination - Shows when more than 1 page */}
         {totalPages > 1 && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 2, mt: 2 }}>
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            py: 2, 
+            mt: 2,
+            flexDirection: { xs: 'column', sm: 'row' },
+            gap: { xs: 1, sm: 0 },
+            borderTop: '1px solid #e2e8f0',
+            bgcolor: 'white',
+            borderRadius: 2,
+            px: 2,
+          }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+              Showing {totalCategories === 0 ? 0 : ((page - 1) * limit) + 1} to {Math.min(page * limit, totalCategories)} of {totalCategories} categories
+            </Typography>
             <Pagination
               count={totalPages}
               page={page}
@@ -542,7 +580,7 @@ const AdminCategories = () => {
         )}
       </Container>
 
-      {/* Create/Edit Dialog - Responsive */}
+      {/* Create/Edit Dialog */}
       <Dialog 
         open={dialog.open} 
         onClose={() => setDialog({ open: false, category: null })} 

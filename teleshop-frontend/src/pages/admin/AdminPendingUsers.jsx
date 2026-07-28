@@ -1,3 +1,4 @@
+// src/pages/admin/AdminPendingUsers.jsx
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -5,15 +6,8 @@ import {
   Typography,
   Paper,
   Box,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Chip,
   Button,
-  IconButton,
   CircularProgress,
   Stack,
   Dialog,
@@ -29,6 +23,8 @@ import {
   Card,
   CardContent,
   Grid,
+  useTheme,
+  useMediaQuery,
 } from '@mui/material';
 import {
   CheckCircle,
@@ -43,9 +39,14 @@ import {
   Block,
 } from '@mui/icons-material';
 import api from '../../api/axios';
+import ResponsiveTable from '../../components/ResponsiveTable';
 
 const AdminPendingUsers = () => {
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'md'));
+  
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -80,10 +81,6 @@ const AdminPendingUsers = () => {
 
   const fetchStats = async () => {
     try {
-      const response = await api.get('/admin/users', {
-        params: { limit: 1 }
-      });
-      // Get counts from all users
       const allUsers = await api.get('/admin/users', {
         params: { limit: 1000 }
       });
@@ -168,24 +165,211 @@ const AdminPendingUsers = () => {
     });
   };
 
+  // ✅ Columns for ResponsiveTable
+  const columns = [
+    {
+      key: 'full_name',
+      label: 'User',
+      render: (value, row) => (
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <Avatar sx={{ 
+            width: { xs: 28, sm: 32, md: 36 }, 
+            height: { xs: 28, sm: 32, md: 36 }, 
+            bgcolor: '#f59e0b', 
+            fontSize: { xs: '0.7rem', sm: '0.8rem', md: '0.9rem' } 
+          }}>
+            {value?.charAt(0)?.toUpperCase() || '?'}
+          </Avatar>
+          <Box>
+            <Typography variant="body2" fontWeight={600} color="#0f172a" fontSize={{ xs: '0.75rem', sm: '0.85rem' }}>
+              {value}
+            </Typography>
+            <Typography variant="caption" color="#94a3b8" fontSize={{ xs: '0.55rem', sm: '0.6rem' }}>
+              ID: #{row.id}
+            </Typography>
+          </Box>
+        </Stack>
+      ),
+    },
+    {
+      key: 'email',
+      label: 'Email',
+      render: (value) => (
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Email sx={{ fontSize: { xs: 12, sm: 14 }, color: '#94a3b8' }} />
+          <Typography variant="body2" color="#334155" fontSize={{ xs: '0.7rem', sm: '0.8rem' }}>
+            {value}
+          </Typography>
+        </Stack>
+      ),
+    },
+    {
+      key: 'phone',
+      label: 'Phone',
+      render: (value) => (
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Phone sx={{ fontSize: { xs: 12, sm: 14 }, color: '#94a3b8' }} />
+          <Typography variant="body2" color="#334155" fontSize={{ xs: '0.7rem', sm: '0.8rem' }}>
+            {value}
+          </Typography>
+        </Stack>
+      ),
+    },
+    {
+      key: 'created_at',
+      label: 'Registered',
+      render: (value) => (
+        <Typography variant="body2" color="#64748b" fontSize={{ xs: '0.6rem', sm: '0.75rem' }}>
+          {formatDate(value)}
+        </Typography>
+      ),
+    },
+  ];
+
+  // ✅ Actions for each row
+  const rowActions = (row) => (
+    <>
+      <Button
+        variant="contained"
+        size="small"
+        color="success"
+        startIcon={<CheckCircle sx={{ fontSize: { xs: 14, sm: 16 } }} />}
+        onClick={(e) => { e.stopPropagation(); handleApprove(row.id); }}
+        disabled={processing}
+        sx={{ 
+          borderRadius: 2, 
+          textTransform: 'none',
+          fontSize: { xs: '0.6rem', sm: '0.75rem' },
+          px: { xs: 1, sm: 2 },
+          py: { xs: 0.4, sm: 0.8 },
+          minWidth: { xs: 50, sm: 80 },
+        }}
+      >
+        Approve
+      </Button>
+      <Button
+        variant="outlined"
+        size="small"
+        color="error"
+        startIcon={<Cancel sx={{ fontSize: { xs: 14, sm: 16 } }} />}
+        onClick={(e) => { e.stopPropagation(); setRejectDialog({ open: true, user: row }); }}
+        disabled={processing}
+        sx={{ 
+          borderRadius: 2, 
+          textTransform: 'none',
+          fontSize: { xs: '0.6rem', sm: '0.75rem' },
+          px: { xs: 1, sm: 2 },
+          py: { xs: 0.4, sm: 0.8 },
+          minWidth: { xs: 50, sm: 80 },
+        }}
+      >
+        Reject
+      </Button>
+    </>
+  );
+
+  // ✅ Mobile Card View
+  const MobilePendingCard = ({ user }) => (
+    <Card sx={{ mb: 1.5, borderRadius: 2, border: '1px solid #e2e8f0' }}>
+      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+        <Stack spacing={1.5}>
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Avatar sx={{ width: 40, height: 40, bgcolor: '#f59e0b', fontSize: '1rem' }}>
+              {user.full_name?.charAt(0)?.toUpperCase() || '?'}
+            </Avatar>
+            <Box flex={1}>
+              <Typography variant="body2" fontWeight={600} color="#0f172a" fontSize="0.85rem">
+                {user.full_name}
+              </Typography>
+              <Typography variant="caption" color="#94a3b8" fontSize="0.6rem">
+                ID: #{user.id}
+              </Typography>
+            </Box>
+            <Chip 
+              label="Pending" 
+              color="warning" 
+              size="small"
+              sx={{ fontSize: '0.55rem', height: 20 }}
+            />
+          </Stack>
+
+          <Stack spacing={0.5}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Email sx={{ fontSize: 14, color: '#94a3b8' }} />
+              <Typography variant="body2" color="#334155" fontSize="0.75rem">
+                {user.email}
+              </Typography>
+            </Stack>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Phone sx={{ fontSize: 14, color: '#94a3b8' }} />
+              <Typography variant="body2" color="#334155" fontSize="0.75rem">
+                {user.phone}
+              </Typography>
+            </Stack>
+            <Typography variant="caption" color="#94a3b8" fontSize="0.6rem">
+              Registered: {formatDate(user.created_at)}
+            </Typography>
+          </Stack>
+
+          <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ pt: 1, borderTop: '1px solid #e2e8f0' }}>
+            <Button
+              size="small"
+              variant="contained"
+              color="success"
+              startIcon={<CheckCircle sx={{ fontSize: 16 }} />}
+              onClick={() => handleApprove(user.id)}
+              disabled={processing}
+              sx={{ borderRadius: 2, textTransform: 'none', fontSize: '0.65rem', py: 0.5, px: 1.5 }}
+            >
+              Approve
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              color="error"
+              startIcon={<Cancel sx={{ fontSize: 16 }} />}
+              onClick={() => setRejectDialog({ open: true, user })}
+              disabled={processing}
+              sx={{ borderRadius: 2, textTransform: 'none', fontSize: '0.65rem', py: 0.5, px: 1.5 }}
+            >
+              Reject
+            </Button>
+          </Stack>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+
   return (
-    <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh', py: 4 }}>
-      <Container maxWidth="xl">
+    <Box sx={{ bgcolor: '#f8fafc', minHeight: '100vh', py: { xs: 2, sm: 3, md: 4 } }}>
+      <Container maxWidth="xl" sx={{ px: { xs: 1, sm: 2, md: 3 } }}>
         {/* Back Button */}
         <Button
           startIcon={<ArrowBack />}
           onClick={() => navigate('/admin')}
-          sx={{ textTransform: 'none', fontWeight: 500, color: '#475569', mb: 2 }}
+          sx={{ 
+            textTransform: 'none', 
+            fontWeight: 500, 
+            color: '#475569', 
+            mb: 2,
+            fontSize: { xs: '0.75rem', sm: '0.85rem' }
+          }}
         >
           Back to Dashboard
         </Button>
 
         {/* Header */}
-        <Paper elevation={0} sx={{ p: 3, mb: 3, borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white' }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
+        <Paper elevation={0} sx={{ 
+          p: { xs: 1.5, sm: 2, md: 3 }, 
+          mb: { xs: 2, sm: 3 }, 
+          borderRadius: { xs: 2, sm: 3 }, 
+          border: '1px solid #e2e8f0', 
+          bgcolor: 'white' 
+        }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} flexWrap="wrap" gap={2}>
             <Box>
-              <Stack direction="row" spacing={2} alignItems="center">
-                <Typography variant="h5" fontWeight={700} color="#0f172a">
+              <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+                <Typography variant="h5" fontWeight={700} color="#0f172a" sx={{ fontSize: { xs: '1.1rem', sm: '1.3rem', md: '1.5rem' } }}>
                   Pending Approvals
                 </Typography>
                 <Chip 
@@ -193,9 +377,10 @@ const AdminPendingUsers = () => {
                   color="warning" 
                   size="medium"
                   icon={<Pending />}
+                  sx={{ fontSize: { xs: '0.6rem', sm: '0.7rem' }, height: { xs: 24, sm: 28 } }}
                 />
               </Stack>
-              <Typography variant="body2" color="#94a3b8" mt={0.5}>
+              <Typography variant="body2" color="#94a3b8" mt={0.5} sx={{ fontSize: { xs: '0.7rem', sm: '0.8rem' } }}>
                 Review and approve new user registrations
               </Typography>
             </Box>
@@ -203,199 +388,202 @@ const AdminPendingUsers = () => {
               startIcon={<Refresh />} 
               onClick={() => { fetchPendingUsers(); fetchStats(); }} 
               size="small" 
-              sx={{ borderRadius: 2, textTransform: 'none' }}
+              sx={{ 
+                borderRadius: 2, 
+                textTransform: 'none',
+                fontSize: { xs: '0.7rem', sm: '0.8rem' }
+              }}
             >
               Refresh
             </Button>
           </Stack>
         </Paper>
 
-        {/* Stats Cards */}
-        <Grid container spacing={2} sx={{ mb: 3 }}>
+        {/* Stats Cards - Responsive */}
+        <Grid container spacing={{ xs: 1, sm: 2 }} sx={{ mb: { xs: 2, sm: 3 } }}>
           <Grid item xs={4}>
             <Card sx={{ bgcolor: '#fef3c7', border: '1px solid #f59e0b' }}>
-              <CardContent>
-                <Typography variant="body2" color="#92400e">Pending</Typography>
-                <Typography variant="h4" fontWeight={700} color="#92400e">{stats.pending}</Typography>
+              <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+                <Typography variant="body2" color="#92400e" fontSize={{ xs: '0.6rem', sm: '0.75rem' }}>
+                  Pending
+                </Typography>
+                <Typography variant="h4" fontWeight={700} color="#92400e" fontSize={{ xs: '1.2rem', sm: '2rem' }}>
+                  {stats.pending}
+                </Typography>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={4}>
             <Card sx={{ bgcolor: '#dcfce7', border: '1px solid #22c55e' }}>
-              <CardContent>
-                <Typography variant="body2" color="#166534">Approved</Typography>
-                <Typography variant="h4" fontWeight={700} color="#166534">{stats.approved}</Typography>
+              <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+                <Typography variant="body2" color="#166534" fontSize={{ xs: '0.6rem', sm: '0.75rem' }}>
+                  Approved
+                </Typography>
+                <Typography variant="h4" fontWeight={700} color="#166534" fontSize={{ xs: '1.2rem', sm: '2rem' }}>
+                  {stats.approved}
+                </Typography>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={4}>
             <Card sx={{ bgcolor: '#fee2e2', border: '1px solid #ef4444' }}>
-              <CardContent>
-                <Typography variant="body2" color="#991b1b">Rejected</Typography>
-                <Typography variant="h4" fontWeight={700} color="#991b1b">{stats.rejected}</Typography>
+              <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+                <Typography variant="body2" color="#991b1b" fontSize={{ xs: '0.6rem', sm: '0.75rem' }}>
+                  Rejected
+                </Typography>
+                <Typography variant="h4" fontWeight={700} color="#991b1b" fontSize={{ xs: '1.2rem', sm: '2rem' }}>
+                  {stats.rejected}
+                </Typography>
               </CardContent>
             </Card>
           </Grid>
         </Grid>
 
-        {/* Users Table */}
-        <Paper elevation={0} sx={{ borderRadius: 3, border: '1px solid #e2e8f0', bgcolor: 'white', overflow: 'hidden' }}>
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow sx={{ bgcolor: '#f8fafc' }}>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>User</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Email</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Phone</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }}>Registered</TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: '#475569' }} align="center">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={5} align="center" sx={{ py: 8 }}>
-                      <CircularProgress />
-                    </TableCell>
-                  </TableRow>
-                ) : users.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} align="center" sx={{ py: 8 }}>
-                      <Verified sx={{ fontSize: 48, color: '#22c55e', mb: 1 }} />
-                      <Typography variant="h6" color="#94a3b8">No pending users</Typography>
-                      <Typography variant="body2" color="#94a3b8">All users have been reviewed</Typography>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  users.map((user) => (
-                    <TableRow key={user.id} hover>
-                      <TableCell>
-                        <Stack direction="row" spacing={1.5} alignItems="center">
-                          <Avatar sx={{ width: 36, height: 36, bgcolor: '#f59e0b', fontSize: '0.9rem' }}>
-                            {user.full_name?.charAt(0)?.toUpperCase() || '?'}
-                          </Avatar>
-                          <Box>
-                            <Typography variant="body2" fontWeight={600} color="#0f172a">
-                              {user.full_name}
-                            </Typography>
-                            <Typography variant="caption" color="#94a3b8">
-                              ID: #{user.id}
-                            </Typography>
-                          </Box>
-                        </Stack>
-                      </TableCell>
-                      <TableCell>
-                        <Stack direction="row" spacing={0.5} alignItems="center">
-                          <Email sx={{ fontSize: 14, color: '#94a3b8' }} />
-                          <Typography variant="body2" color="#334155">{user.email}</Typography>
-                        </Stack>
-                      </TableCell>
-                      <TableCell>
-                        <Stack direction="row" spacing={0.5} alignItems="center">
-                          <Phone sx={{ fontSize: 14, color: '#94a3b8' }} />
-                          <Typography variant="body2" color="#334155">{user.phone}</Typography>
-                        </Stack>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" color="#64748b">{formatDate(user.created_at)}</Typography>
-                      </TableCell>
-                      <TableCell align="center">
-                        <Stack direction="row" spacing={1} justifyContent="center">
-                          <Button
-                            variant="contained"
-                            size="small"
-                            color="success"
-                            startIcon={<CheckCircle />}
-                            onClick={() => handleApprove(user.id)}
-                            disabled={processing}
-                            sx={{ borderRadius: 2, textTransform: 'none' }}
-                          >
-                            Approve
-                          </Button>
-                          <Button
-                            variant="outlined"
-                            size="small"
-                            color="error"
-                            startIcon={<Cancel />}
-                            onClick={() => setRejectDialog({ open: true, user })}
-                            disabled={processing}
-                            sx={{ borderRadius: 2, textTransform: 'none' }}
-                          >
-                            Reject
-                          </Button>
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-          {totalPages > 1 && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 2, borderTop: '1px solid #e2e8f0' }}>
-              <Pagination
-                count={totalPages}
-                page={page}
-                onChange={(e, p) => setPage(p)}
-                color="primary"
-                showFirstButton
-                showLastButton
-              />
-            </Box>
-          )}
-        </Paper>
-
-        {/* Reject Dialog */}
-        <Dialog open={rejectDialog.open} onClose={() => setRejectDialog({ open: false, user: null })} maxWidth="sm" fullWidth>
-          <DialogTitle sx={{ fontWeight: 700, color: '#dc2626' }}>
-            <Cancel sx={{ mr: 1, verticalAlign: 'middle' }} />
-            Reject User
-          </DialogTitle>
-          <DialogContent>
-            <DialogContentText sx={{ mb: 2 }}>
-              You are about to reject <strong>{rejectDialog.user?.full_name}</strong> ({rejectDialog.user?.email}).
-              Please provide a reason that will be sent to the user.
-            </DialogContentText>
-            <TextField
-              fullWidth
-              label="Rejection Reason"
-              multiline
-              rows={3}
-              value={rejectionReason}
-              onChange={(e) => setRejectionReason(e.target.value)}
-              placeholder="Explain why the registration was rejected..."
-              required
-              sx={{ mt: 1 }}
+        {/* Pending Users - Responsive */}
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+            <CircularProgress />
+          </Box>
+        ) : users.length === 0 ? (
+          <Paper elevation={0} sx={{ 
+            borderRadius: { xs: 2, sm: 3 }, 
+            border: '1px solid #e2e8f0', 
+            bgcolor: 'white', 
+            p: 6, 
+            textAlign: 'center' 
+          }}>
+            <Verified sx={{ fontSize: 48, color: '#22c55e', mb: 1 }} />
+            <Typography variant="h6" color="#94a3b8">No pending users</Typography>
+            <Typography variant="body2" color="#94a3b8">All users have been reviewed</Typography>
+          </Paper>
+        ) : isMobile ? (
+          // ✅ Mobile Card View
+          <Box>
+            {users.map((user) => (
+              <MobilePendingCard key={user.id} user={user} />
+            ))}
+          </Box>
+        ) : (
+          // ✅ Tablet/Desktop Table View
+          <Paper elevation={0} sx={{ 
+            borderRadius: { xs: 2, sm: 3 }, 
+            border: '1px solid #e2e8f0', 
+            bgcolor: 'white', 
+            overflow: 'hidden' 
+          }}>
+            <ResponsiveTable
+              columns={columns}
+              data={users}
+              actions={rowActions}
+              emptyMessage="No pending users"
             />
-          </DialogContent>
-          <DialogActions sx={{ p: 3, pt: 0 }}>
-            <Button onClick={() => setRejectDialog({ open: false, user: null })} sx={{ borderRadius: 2, textTransform: 'none' }}>
-              Cancel
-            </Button>
-            <Button
-              variant="contained"
-              color="error"
-              onClick={handleRejectSubmit}
-              disabled={processing || !rejectionReason.trim()}
-              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
-            >
-              {processing ? <CircularProgress size={20} /> : 'Reject User'}
-            </Button>
-          </DialogActions>
-        </Dialog>
+          </Paper>
+        )}
 
-        {/* Snackbar */}
-        <Snackbar 
-          open={snackbar.open} 
-          autoHideDuration={3000} 
-          onClose={() => setSnackbar(s => ({ ...s, open: false }))}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        >
-          <Alert severity={snackbar.severity} variant="filled" sx={{ borderRadius: 2 }}>
-            {snackbar.message}
-          </Alert>
-        </Snackbar>
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 2, mt: 2 }}>
+            <Pagination
+              count={totalPages}
+              page={page}
+              onChange={(e, p) => setPage(p)}
+              color="primary"
+              showFirstButton
+              showLastButton
+              size={isMobile ? 'small' : 'medium'}
+            />
+          </Box>
+        )}
       </Container>
+
+      {/* Reject Dialog */}
+      <Dialog 
+        open={rejectDialog.open} 
+        onClose={() => setRejectDialog({ open: false, user: null })} 
+        maxWidth="sm" 
+        fullWidth
+        PaperProps={{ 
+          sx: { 
+            borderRadius: { xs: 2, sm: 3 },
+            margin: { xs: 1, sm: 2 },
+          } 
+        }}
+      >
+        <DialogTitle sx={{ 
+          fontWeight: 700, 
+          color: '#dc2626',
+          fontSize: { xs: '1rem', sm: '1.1rem', md: '1.25rem' }
+        }}>
+          <Cancel sx={{ mr: 1, verticalAlign: 'middle' }} />
+          Reject User
+        </DialogTitle>
+        <DialogContent sx={{ px: { xs: 1.5, sm: 2, md: 3 } }}>
+          <DialogContentText sx={{ mb: 2 }}>
+            You are about to reject <strong>{rejectDialog.user?.full_name}</strong> ({rejectDialog.user?.email}).
+            Please provide a reason that will be sent to the user.
+          </DialogContentText>
+          <TextField
+            fullWidth
+            label="Rejection Reason"
+            multiline
+            rows={3}
+            value={rejectionReason}
+            onChange={(e) => setRejectionReason(e.target.value)}
+            placeholder="Explain why the registration was rejected..."
+            required
+            sx={{ 
+              mt: 1,
+              '& .MuiOutlinedInput-root': { borderRadius: 2 },
+              '& .MuiInputBase-input': { fontSize: { xs: '0.8rem', sm: '0.9rem' } }
+            }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ 
+          p: { xs: 2, sm: 3 }, 
+          pt: 0, 
+          flexDirection: { xs: 'column', sm: 'row' }, 
+          gap: { xs: 1, sm: 0 } 
+        }}>
+          <Button 
+            onClick={() => setRejectDialog({ open: false, user: null })} 
+            sx={{ 
+              borderRadius: 2, 
+              textTransform: 'none',
+              width: { xs: '100%', sm: 'auto' },
+              fontSize: { xs: '0.75rem', sm: '0.85rem' }
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleRejectSubmit}
+            disabled={processing || !rejectionReason.trim()}
+            sx={{ 
+              borderRadius: 2, 
+              textTransform: 'none', 
+              fontWeight: 600,
+              width: { xs: '100%', sm: 'auto' },
+              fontSize: { xs: '0.75rem', sm: '0.85rem' }
+            }}
+          >
+            {processing ? <CircularProgress size={20} /> : 'Reject User'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Snackbar */}
+      <Snackbar 
+        open={snackbar.open} 
+        autoHideDuration={3000} 
+        onClose={() => setSnackbar(s => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert severity={snackbar.severity} variant="filled" sx={{ borderRadius: 2 }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

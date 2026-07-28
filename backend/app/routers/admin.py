@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 
 import cloudinary
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional, List
@@ -23,6 +23,7 @@ from app.models.order import Order, OrderStatus, OrderItem
 from app.services.telegram import send_order_status_update
 from app.services.cloudinary_service import upload_image
 from app.schemas.auth import AdminUserApproval 
+from sqlalchemy import or_
 from app.services.notification_service import (
     send_account_approved_notification,
     send_account_rejected_notification
@@ -1493,3 +1494,57 @@ async def delete_user(
     await db.commit()
     
     return {"message": "User deleted successfully", "user_id": user_id}
+
+@router.get("/admin/categories")
+async def admin_list_categories(
+    page: Optional[int] = Query(1, ge=1, description="Page number"),
+    limit: Optional[int] = Query(5, ge=1, le=100, description="Items per page"),
+    search: Optional[str] = Query(None, description="Search by name or slug"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(admin_required)
+):
+    """Admin: Get all categories with pagination and search"""
+    from app.models.category import Category
+    
+    # Build base query
+    query = select(Category)
+    
+    # Apply search filter
+    if search:
+        search_term = f"%{search}%"
+        query = query.where(
+            or_(
+                Category.name.ilike(search_term),
+                Category.slug.ilike(search_term)
+            )
+        )
+    
+    # Get total count
+    count_query = select(func.count()).select_from(query.subquery())
+    total = (await db.execute(count_query)).scalar() or 0
+    
+    # Apply pagination
+    offset = (page - 1) * limit
+    query = query.order_by(Category.name).offset(offset).limit(limit)
+    
+    result = await db.execute(query)
+    categories = result.scalars().all()
+    
+    return {
+        "items": [
+            {
+                "id": cat.id,
+                "name": cat.name,
+                "slug": cat.slug,
+                "image_url": cat.image_url,
+                "parent_id": cat.parent_id,
+                "created_at": str(cat.created_at) if cat.created_at else None,
+                "updated_at": str(cat.updated_at) if cat.updated_at else None
+            }
+            for cat in categories
+        ],
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": (total + limit - 1) // limit if total > 0 else 1
+    }
