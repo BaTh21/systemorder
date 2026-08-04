@@ -8,8 +8,11 @@ from app.core.database import get_db
 from app.models.user import User
 from app.models.order import Order, OrderStatus
 from app.core.config import settings
+from app.services.khqr_service import KHQRGenerator
 import httpx
 import secrets
+import io
+import base64
 from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
@@ -17,6 +20,7 @@ router = APIRouter(prefix="/telegram", tags=["telegram"])
 temp_tokens = {}
 
 TELEGRAM_API = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}"
+
 
 async def send_telegram_message(chat_id: str, text: str, parse_mode: str = "HTML"):
     """Send message to Telegram chat"""
@@ -38,37 +42,150 @@ async def send_telegram_message(chat_id: str, text: str, parse_mode: str = "HTML
             print(f"Error sending Telegram message: {e}")
             return {"ok": False}
 
-async def send_telegram_photo(chat_id: str, photo_path: str, caption: str = ""):
-    """Send photo/QR code to Telegram"""
+
+async def send_telegram_photo(chat_id: str, photo_data, caption: str = ""):
+    """
+    Send photo to Telegram
+    photo_data can be: file path (str), file object, base64 image, or bytes
+    """
     url = f"{TELEGRAM_API}/sendPhoto"
     
     print(f"\n📸 Sending photo to {chat_id}")
-    print(f"   File: {photo_path}")
-    print(f"   Exists: {Path(photo_path).exists()}")
     
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            with open(photo_path, 'rb') as photo_file:
-                files = {'photo': (Path(photo_path).name, photo_file, 'image/png')}
-                data = {
-                    'chat_id': chat_id,
-                    'caption': caption,
-                    'parse_mode': 'HTML'
-                }
-                response = await client.post(url, files=files, data=data)
-                result = response.json()
-                print(f"   Result: {result}")
-                return result
-    except FileNotFoundError:
-        print(f"   ❌ File not found: {photo_path}")
-        return {"ok": False, "error": "File not found"}
+            files = None
+            data = {
+                'chat_id': chat_id,
+                'caption': caption,
+                'parse_mode': 'HTML'
+            }
+            
+            # Handle different photo input types
+            if isinstance(photo_data, str) and photo_data.startswith('data:image'):
+                # Base64 image
+                if ',' in photo_data:
+                    base64_data = photo_data.split(',')[1]
+                else:
+                    base64_data = photo_data
+                image_data = base64.b64decode(base64_data)
+                files = {'photo': ('qr_code.png', io.BytesIO(image_data), 'image/png')}
+                
+            elif isinstance(photo_data, bytes):
+                # Bytes image
+                files = {'photo': ('qr_code.png', io.BytesIO(photo_data), 'image/png')}
+                
+            elif isinstance(photo_data, str) and (photo_data.startswith('http://') or photo_data.startswith('https://')):
+                # URL - download and send
+                response = await client.get(photo_data)
+                files = {'photo': ('qr_code.jpg', io.BytesIO(response.content), 'image/jpeg')}
+                
+            elif isinstance(photo_data, str) and Path(photo_data).exists():
+                # Local file path
+                with open(photo_data, 'rb') as photo_file:
+                    files = {'photo': (Path(photo_data).name, photo_file, 'image/png')}
+            else:
+                print(f"   ❌ Unsupported photo data type: {type(photo_data)}")
+                return {"ok": False, "error": "Unsupported photo data"}
+            
+            response = await client.post(url, files=files, data=data)
+            result = response.json()
+            print(f"   Result: {result}")
+            return result
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"   ❌ Error sending photo: {e}")
         return {"ok": False, "error": str(e)}
+
+
+async def send_telegram_photo_from_base64(chat_id: str, base64_image: str, caption: str = ""):
+    """Send photo from base64 string to Telegram"""
+    try:
+        if ',' in base64_image:
+            base64_data = base64_image.split(',')[1]
+        else:
+            base64_data = base64_image
+        
+        image_data = base64.b64decode(base64_data)
+        
+        url = f"{TELEGRAM_API}/sendPhoto"
+        files = {'photo': ('qr_code.png', io.BytesIO(image_data), 'image/png')}
+        data = {
+            'chat_id': chat_id,
+            'caption': caption,
+            'parse_mode': 'HTML'
+        }
+        
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(url, files=files, data=data)
+            result = response.json()
+            print(f"   ✅ Photo sent: {result.get('ok')}")
+            return result
+    except Exception as e:
+        print(f"   ❌ Error sending photo from base64: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+async def send_qr_code_to_telegram(chat_id: str, order_id: int, amount: float):
+    """Generate and send QR code for order payment"""
+    try:
+        # Generate QR code
+        khqr_data = KHQRGenerator.generate_khqr_data(
+            bank_account=settings.BANK_ACCOUNT_NUMBER,
+            bank_name=settings.BANK_NAME,
+            account_name=settings.BANK_ACCOUNT_NAME,
+            amount=float(amount),
+            currency="USD",
+            order_id=str(order_id)
+        )
+        
+        qr_image = KHQRGenerator.generate_qr_base64(khqr_data)
+        
+        if qr_image:
+            caption = f"📱 Scan this QR code to pay ${amount:.2f} for Order #{order_id}\n\n🏦 Bank: {settings.BANK_NAME}\n👤 Account: {settings.BANK_ACCOUNT_NAME}"
+            return await send_telegram_photo_from_base64(chat_id, qr_image, caption)
+        else:
+            print(f"   ❌ QR code generation failed")
+            return {"ok": False, "error": "QR generation failed"}
+    except Exception as e:
+        print(f"   ❌ Error sending QR code: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+async def send_order_confirmation_with_qr(chat_id: str, order_id: int, amount: float, full_name: str):
+    """Send full order confirmation with QR code"""
+    
+    # 1. Send text message
+    message = f"""
+✅ <b>Order Confirmed!</b>
+
+<b>Order ID:</b> #{order_id}
+<b>Total:</b> ${amount:.2f}
+
+<b>💰 Payment Instructions:</b>
+
+Please transfer <b>${amount:.2f}</b> to:
+
+🏦 <b>Bank:</b> {settings.BANK_NAME}
+👤 <b>Account Name:</b> {settings.BANK_ACCOUNT_NAME}
+🔢 <b>Account Number:</b> <code>{settings.BANK_ACCOUNT_NUMBER}</code>
+
+<b>Steps:</b>
+1. Transfer the exact amount
+2. Take screenshot of confirmation
+3. Upload on the website
+
+<i>Order will be processed after payment verification.</i>
+"""
+    
+    await send_telegram_message(chat_id, message)
+    
+    # 2. Send QR code
+    await send_qr_code_to_telegram(chat_id, order_id, amount)
+
 
 @router.post("/connect")
 async def connect_telegram(
-    request: Request,  # Use Request to get JSON body
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -99,6 +216,7 @@ async def connect_telegram(
     
     return {"message": "Telegram connected successfully"}
 
+
 @router.post("/disconnect")
 async def disconnect_telegram(
     current_user: User = Depends(get_current_user),
@@ -110,7 +228,6 @@ async def disconnect_telegram(
     if not user.telegram_chat_id:
         raise HTTPException(400, "Telegram is not connected")
     
-    # Try to send goodbye message (don't fail if this fails)
     try:
         await send_telegram_message(
             chat_id=user.telegram_chat_id,
@@ -119,11 +236,11 @@ async def disconnect_telegram(
     except Exception as e:
         print(f"⚠️ Could not send disconnect message: {e}")
     
-    # Clear the telegram_chat_id
     user.telegram_chat_id = None
     await db.commit()
     
     return {"message": "Telegram disconnected successfully"}
+
 
 @router.get("/status")
 async def telegram_status(
@@ -135,6 +252,7 @@ async def telegram_status(
         "connected": bool(user.telegram_chat_id),
         "chat_id": user.telegram_chat_id if user.telegram_chat_id else None
     }
+
 
 @router.post("/webhook")
 async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db)):
@@ -153,13 +271,7 @@ async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db))
             print(f"   Full Text: '{text}'")
             print(f"   Text Length: {len(text)}")
             
-            # =============================================
-            # CHECK FOR TOKEN IN /start COMMAND
-            # Token comes after /start with a space
-            # Telegram sends: "/start abc123token"
-            # =============================================
             if text and text.startswith("/start"):
-                # Split by space
                 parts = text.split(" ", 1)
                 print(f"   Parts: {parts}")
                 
@@ -172,20 +284,15 @@ async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db))
                         token_data = temp_tokens[token]
                         print(f"   Token data: {token_data}")
                         
-                        # Check expiration
                         if datetime.utcnow() < token_data["expires"]:
                             user_id = token_data["user_id"]
                             user = await db.get(User, user_id)
                             
                             if user:
-                                # SAVE THE CONNECTION
                                 user.telegram_chat_id = chat_id
                                 await db.commit()
-                                
-                                # Remove used token
                                 del temp_tokens[token]
                                 
-                                # Send success - NO CHAT ID!
                                 await send_telegram_message(
                                     chat_id,
                                     f"✅ <b>Connected Successfully!</b>\n\n"
@@ -204,7 +311,6 @@ async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db))
                             print(f"   ❌ Token expired")
                             del temp_tokens[token]
                     
-                    # Token invalid or expired
                     await send_telegram_message(
                         chat_id,
                         "⚠️ Connection link expired or invalid.\n"
@@ -212,11 +318,9 @@ async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db))
                     )
                     return {"ok": True}
                 
-                # No token - normal /start
                 else:
                     print(f"   ℹ️ Normal /start (no token)")
                     
-                    # Check if already connected
                     result = await db.execute(
                         select(User).where(User.telegram_chat_id == chat_id)
                     )
@@ -242,9 +346,6 @@ async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db))
                         )
                     return {"ok": True}
             
-            # =============================================
-            # OTHER COMMANDS
-            # =============================================
             if text == "/chatid":
                 await send_telegram_message(chat_id, f"📱 <b>Your Chat ID:</b> <code>{chat_id}</code>")
                 return {"ok": True}
@@ -272,7 +373,6 @@ async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db))
                 await send_telegram_message(chat_id, "❓ <b>Help</b>\n\n/start - Connect\n/orders - Orders\n/help - This message")
                 return {"ok": True}
             
-            # Default
             await send_telegram_message(chat_id, "Send /start to connect!\n/help - Commands")
         
         return {"ok": True}
@@ -282,7 +382,8 @@ async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db))
         import traceback
         traceback.print_exc()
         return {"ok": False, "error": str(e)}
-    
+
+
 @router.get("/generate-token")
 async def generate_connect_token(
     current_user: User = Depends(get_current_user),
@@ -293,3 +394,30 @@ async def generate_connect_token(
         "expires": datetime.utcnow() + timedelta(minutes=30)
     }
     return {"token": token}
+
+
+# ✅ NEW: Send QR code to specific chat
+@router.post("/send-qr")
+async def send_qr_to_telegram(
+    order_id: int,
+    amount: float,
+    chat_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Admin: Send QR code to user's Telegram"""
+    result = await send_qr_code_to_telegram(chat_id, order_id, amount)
+    return {"success": result.get("ok", False), "message": "QR code sent" if result.get("ok") else "Failed to send"}
+
+
+# ✅ NEW: Send order confirmation with QR
+@router.post("/send-order-confirmation")
+async def send_order_confirmation(
+    order_id: int,
+    chat_id: str,
+    amount: float,
+    full_name: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Admin: Send order confirmation with QR code"""
+    await send_order_confirmation_with_qr(chat_id, order_id, amount, full_name)
+    return {"message": "Order confirmation sent with QR code"}
