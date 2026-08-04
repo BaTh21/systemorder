@@ -27,10 +27,8 @@ const KHQRPayment = ({ orderId, amount }) => {
   const [copied, setCopied] = useState(false);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
   
-  // ✅ Use your uploaded QR image
-  const qrImageUrl = import.meta.env.VITE_BACKEND_URL 
-    ? `${import.meta.env.VITE_BACKEND_URL}/uploads/payments/qr-code.jpg`
-    : '/uploads/payments/qr-code.jpg';
+  // ✅ Your Cloudinary QR Code URL
+  const qrImageUrl = "https://res.cloudinary.com/vck8ep1r/image/upload/v1784691357/teleshop/payments/qr-code.jpg";
 
   const bankAccount = "003039935";
   const accountName = "MOK KOLSAMBATH";
@@ -95,7 +93,7 @@ const KHQRPayment = ({ orderId, amount }) => {
 
         <Stack spacing={{ xs: 2, sm: 2.5 }} alignItems="center">
           
-          {/* ✅ QR Code Image - Fixed Size */}
+          {/* ✅ QR Code Image - From Cloudinary */}
           <Box 
             sx={{ 
               p: { xs: 1.5, sm: 2 }, 
@@ -122,6 +120,7 @@ const KHQRPayment = ({ orderId, amount }) => {
                 display: 'block',
               }}
               onError={(e) => {
+                console.error('QR Code image failed to load:', qrImageUrl);
                 e.target.src = 'https://via.placeholder.com/200/00B14F/white?text=QR+Code';
               }}
             />
