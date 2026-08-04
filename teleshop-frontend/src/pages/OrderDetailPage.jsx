@@ -23,6 +23,8 @@ import {
   useMediaQuery,
   Card,
   CardContent,
+  Alert,
+  Snackbar,
 } from '@mui/material';
 import {
   ArrowBack,
@@ -33,7 +35,9 @@ import {
   Receipt,
   CalendarToday,
   ShoppingBag,
-  AttachMoney,
+  CloudUpload,
+  CheckCircle,
+  Schedule,  // ✅ ADD THIS
 } from '@mui/icons-material';
 import api from '../api/axios';
 import { useAuth } from '../contexts/AuthContext';
@@ -82,6 +86,11 @@ const OrderDetailPage = () => {
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   useEffect(() => {
     fetchOrder();
@@ -100,6 +109,55 @@ const OrderDetailPage = () => {
       else setError('Failed to load order details');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUploadProof = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      setSnackbar({ open: true, message: 'Only JPG, PNG, GIF, and WebP images are allowed', severity: 'error' });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setSnackbar({ open: true, message: 'File size must be less than 5MB', severity: 'error' });
+      return;
+    }
+
+    setSelectedFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+  };
+
+  const handleSubmitProof = async () => {
+    if (!selectedFile || !order) return;
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+      await api.post(`/payment/upload-proof/${order.id}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setUploadSuccess(true);
+      setSnackbar({ open: true, message: 'Payment proof uploaded successfully!', severity: 'success' });
+      setTimeout(() => {
+        fetchOrder();
+        setSelectedFile(null);
+        setPreviewUrl(null);
+        setUploadSuccess(false);
+      }, 2000);
+    } catch (error) {
+      setSnackbar({ 
+        open: true, 
+        message: error.response?.data?.detail || 'Failed to upload payment proof', 
+        severity: 'error' 
+      });
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -159,6 +217,11 @@ const OrderDetailPage = () => {
   const trackingInfo = order?.tracking_number ? getTrackingInfo(order.tracking_number) : null;
   const trackingPhone = order?.tracking_number ? getTrackingPhone(order.tracking_number) : '';
   const trackingNotes = order?.tracking_number ? getTrackingNotes(order.tracking_number) : '';
+
+  // ✅ Check if payment proof has been uploaded
+  const hasPaymentProof = order?.payment_receipt_url;
+  const isPaymentCompleted = order?.status === 'paid' || order?.status === 'purchasing' || 
+                            order?.status === 'shipping' || order?.status === 'completed';
 
   if (loading) {
     return (
@@ -368,11 +431,113 @@ const OrderDetailPage = () => {
                 </Stack>
               </Box>
 
-              {/* KHQR Payment - Show when waiting payment */}
-              {order.status === 'waiting_payment' && (
+              {/* ✅ PAYMENT PROOF UPLOAD SECTION */}
+              {(order.status === 'pending' || order.status === 'waiting_payment') && (
+                <Box sx={{ mt: 3, p: 3, bgcolor: '#fef3c7', borderRadius: 2, border: '1px solid #f59e0b' }}>
+                  <Typography variant="subtitle1" fontWeight={700} color="#92400e" gutterBottom>
+                    📸 Upload Payment Proof
+                  </Typography>
+                  <Typography variant="body2" color="#92400e" mb={2}>
+                    Please upload a screenshot or photo of your bank transfer confirmation.
+                    {order.status === 'waiting_payment' && ' Your payment is being verified by our team.'}
+                  </Typography>
+
+                  {uploadSuccess ? (
+                    <Alert severity="success" sx={{ borderRadius: 2 }}>
+                      ✅ Payment proof uploaded successfully! We'll verify your payment shortly.
+                    </Alert>
+                  ) : (
+                    <>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                        <Button
+                          variant="contained"
+                          component="label"
+                          startIcon={<CloudUpload />}
+                          sx={{ borderRadius: 2, textTransform: 'none' }}
+                          disabled={uploading}
+                        >
+                          Choose File
+                          <input
+                            type="file"
+                            hidden
+                            accept="image/*"
+                            onChange={handleUploadProof}
+                          />
+                        </Button>
+                        {uploading && <CircularProgress size={24} />}
+                        {selectedFile && (
+                          <Typography variant="body2" color="#64748b">
+                            {selectedFile.name}
+                          </Typography>
+                        )}
+                      </Box>
+
+                      {previewUrl && (
+                        <Box sx={{ mt: 2 }}>
+                          <img
+                            src={previewUrl}
+                            alt="Payment Proof"
+                            style={{ maxWidth: 200, maxHeight: 200, objectFit: 'cover', borderRadius: 8 }}
+                          />
+                          <Button
+                            size="small"
+                            color="error"
+                            onClick={() => { setSelectedFile(null); setPreviewUrl(null); }}
+                            sx={{ ml: 2, textTransform: 'none' }}
+                          >
+                            Remove
+                          </Button>
+                        </Box>
+                      )}
+
+                      <Button
+                        variant="contained"
+                        color="success"
+                        onClick={handleSubmitProof}
+                        disabled={!selectedFile || uploading}
+                        startIcon={uploading ? <CircularProgress size={20} /> : <CheckCircle />}
+                        sx={{ mt: 2, borderRadius: 2, textTransform: 'none' }}
+                      >
+                        {uploading ? 'Uploading...' : 'Submit Payment Proof'}
+                      </Button>
+
+                      <Typography variant="caption" color="#92400e" display="block" mt={1}>
+                        ⚠️ Please ensure the screenshot clearly shows the transfer amount and reference
+                      </Typography>
+                    </>
+                  )}
+                </Box>
+              )}
+
+              {/* ✅ KHQR Payment - Show ONLY when pending AND no proof uploaded yet */}
+              {(order.status === 'pending' || order.status === 'waiting_payment') && !hasPaymentProof && (
                 <Box sx={{ mt: 3 }}>
                   <KHQRPayment orderId={order.id} amount={order.total} />
                 </Box>
+              )}
+
+              {/* ✅ Show payment status when proof uploaded */}
+              {hasPaymentProof && order.status === 'waiting_payment' && (
+                <Alert severity="info" sx={{ mt: 3, borderRadius: 2 }}>
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <Schedule sx={{ fontSize: 20 }} />  {/* ✅ USING Schedule INSTEAD OF Clock */}
+                    <Typography variant="body2">
+                      ⏳ Payment proof submitted! Waiting for admin verification.
+                    </Typography>
+                  </Stack>
+                </Alert>
+              )}
+
+              {/* ✅ Show payment completed status */}
+              {isPaymentCompleted && (
+                <Alert severity="success" sx={{ mt: 3, borderRadius: 2 }}>
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <CheckCircle sx={{ fontSize: 20 }} />
+                    <Typography variant="body2" fontWeight={600}>
+                      ✅ Payment completed! Your order is being processed.
+                    </Typography>
+                  </Stack>
+                </Alert>
               )}
             </Paper>
           </Grid>
@@ -520,6 +685,18 @@ const OrderDetailPage = () => {
           </Grid>
         </Grid>
       </Container>
+
+      {/* Snackbar */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar(s => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert severity={snackbar.severity} variant="filled" sx={{ borderRadius: 2 }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

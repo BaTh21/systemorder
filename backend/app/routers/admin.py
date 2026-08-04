@@ -42,27 +42,23 @@ async def get_all_orders(
 ):
     """Get all orders with items and customer info"""
     
-    # Build query with eager loading of user relationship
     query = select(Order).options(
         selectinload(Order.items),
-        selectinload(Order.user)  # ← LOAD USER DATA
+        selectinload(Order.user)
     )
     
     if status:
         query = query.where(Order.status == status)
     
-    # Get total count
     count_query = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_query)).scalar()
     
-    # Apply pagination and ordering
-    query = query.order_by(Order.created_at.asc())  # ASC - oldest first
+    query = query.order_by(Order.created_at.asc())
     query = query.offset((page - 1) * limit).limit(limit)
     
     result = await db.execute(query)
     orders = result.unique().scalars().all()
     
-    # Build response with customer names
     orders_list = []
     for order in orders:
         items_list = []
@@ -89,6 +85,7 @@ async def get_all_orders(
             "shipping_address": order.shipping_address,
             "customer_notes": order.customer_notes,
             "payment_method": order.payment_method,
+            "payment_receipt_url": order.payment_receipt_url,
             "tracking_number": order.tracking_number,
             "created_at": str(order.created_at),
             "items": items_list

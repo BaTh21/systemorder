@@ -23,8 +23,7 @@ class KHQRGenerator:
         """
         clean_account = bank_account.replace(" ", "").replace("-", "")
         
-        # Simple, clean format that banking apps can read
-        # This is the standard Bakong MDC format
+        # Standard Bakong MDC format
         khqr_data = (
             f"BAKONG|"
             f"{clean_account}|"
@@ -66,10 +65,7 @@ class KHQRGenerator:
     
     @staticmethod
     def get_simple_payment_qr(amount: float, order_id: str = "") -> str:
-        """
-        Generate a simple payment QR that ABA can scan
-        Format: bank|account|name|amount|currency
-        """
+        """Generate a simple payment QR that ABA can scan"""
         data = f"ABA|003039935|MOK KOLSAMBATH|{amount:.2f}|USD"
         if order_id:
             data += f"|{order_id}"
