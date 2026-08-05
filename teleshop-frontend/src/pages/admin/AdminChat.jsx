@@ -93,21 +93,24 @@ const AdminChat = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   useEffect(() => { activeChatRef.current = activeChat; }, [activeChat]);
+  
   useEffect(() => {
-    loadSessions(); connectWs(); return () => {
+    loadSessions(); 
+    connectWs(); 
+    return () => {
       if (wsRef.current) wsRef.current.close();
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
     };
   }, []);
+
   useEffect(() => { if (activeChat) { loadMessages(activeChat); } }, [activeChat]);
+
   useEffect(() => {
     if (activeChat) {
-      // Find the customer from the list
       const customer = customers.find(c => c.session_id === activeChat);
       console.log('📋 Loading profile for customer:', customer);
 
       if (customer) {
-        // ✅ LOCK the profile - always use the customer's data
         const profileData = {
           name: customer.displayName || 'Customer',
           email: customer.sender_email || null,
@@ -117,16 +120,13 @@ const AdminChat = () => {
           user_id: customer.user_id || null,
         };
 
-        // ✅ If customer has user_id, try to get more details from API
         if (customer.user_id) {
           loadCustomerProfileByUserId(customer.user_id, profileData);
         } else {
-          // ✅ Guest user - use session data immediately
           console.log('👤 Guest user profile:', profileData);
           setCustomerProfile(profileData);
         }
       } else {
-        // ✅ Fallback - use session data
         const fallbackProfile = {
           name: 'Customer',
           email: null,
@@ -139,7 +139,9 @@ const AdminChat = () => {
       }
     }
   }, [activeChat, customers]);
+
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
   useEffect(() => {
     const unread = customers.reduce((sum, c) => sum + (c.unread || 0), 0);
     setTotalUnread(unread);
@@ -183,6 +185,7 @@ const AdminChat = () => {
             const sid = data.session_id || data.from_user_id;
             if (activeChatRef.current === sid && data.message_id) {
               setMessages(prev => {
+                // ✅ Check for duplicates
                 if (prev.find(m => m.id === data.message_id)) return prev;
                 const msgType = data.message_type || 'text';
                 let messageData = {
@@ -216,9 +219,41 @@ const AdminChat = () => {
             loadSessions();
           }
           else if (data.type === 'message_sent') {
+            // ✅ This is the confirmation that our message was saved
             if (activeChatRef.current === data.session_id) {
               setMessages(prev => {
+                // ✅ Replace any temp messages with the real one
+                const hasTemp = prev.some(m => 
+                  m.id && m.id.toString().startsWith('temp_') && 
+                  m.from === 'admin' &&
+                  m.type === (data.message_type || 'text') &&
+                  m.text === data.message
+                );
+                
+                if (hasTemp) {
+                  // Replace temp message with real one
+                  return prev.map(m => 
+                    (m.id && m.id.toString().startsWith('temp_') && 
+                     m.from === 'admin' &&
+                     m.type === (data.message_type || 'text') &&
+                     m.text === data.message)
+                      ? {
+                          id: data.message_id,
+                          from: 'admin',
+                          type: data.message_type || 'text',
+                          text: data.message || '',
+                          senderName: 'You',
+                          time: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                          isEdited: false,
+                          reaction: null
+                        }
+                      : m
+                  );
+                }
+                
+                // ✅ Check if real message already exists
                 if (prev.find(m => m.id === data.message_id)) return prev;
+                
                 const msgType = data.message_type || 'text';
                 let messageData = {
                   id: data.message_id,
@@ -301,7 +336,6 @@ const AdminChat = () => {
         return {
           ...c,
           message_type: c.message_type || messageType,
-          // ✅ Use sender_name from API (which is the customer's name)
           displayName: c.sender_name || 'Customer',
           unread: c.session_id === activeChatRef.current ? 0 : (c.unread || 0),
           user_id: c.user_id || null
@@ -309,15 +343,6 @@ const AdminChat = () => {
       }));
     } catch (e) {
       console.error('Failed to load sessions:', e);
-    }
-  };
-
-  const loadCustomerProfile = async (sessionId) => {
-    try {
-      const res = await api.get(`/chat/customer-profile/${sessionId}`);
-      setCustomerProfile(res.data);
-    } catch (e) {
-      setCustomerProfile(null);
     }
   };
 
@@ -331,7 +356,6 @@ const AdminChat = () => {
       const res = await api.get(`/chat/customer-profile-by-user/${userId}`);
       console.log('📋 Customer profile from API:', res.data);
 
-      // ✅ Only use the response if it's a customer (not admin)
       if (res.data && !res.data.is_admin) {
         const profile = {
           name: res.data.name || fallbackProfile.name,
@@ -344,17 +368,14 @@ const AdminChat = () => {
         console.log('✅ Setting customer profile:', profile);
         setCustomerProfile(profile);
       } else {
-        // ✅ Use fallback
         console.log('⚠️ API returned admin data, using fallback');
         setCustomerProfile(fallbackProfile);
       }
     } catch (e) {
       console.error('❌ Failed to load customer profile:', e);
-      // ✅ Use fallback on error
       setCustomerProfile(fallbackProfile);
     }
   };
-
 
   const loadMessages = async (sid) => {
     setLoading(true);
@@ -390,24 +411,24 @@ const AdminChat = () => {
 
   const handleSend = async () => {
     if (!input.trim() || !activeChat) return;
-    const txt = input;
+    const txt = input.trim();
     setInput('');
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      const messageData = {
+      // ✅ Send via WebSocket only (chat_ws.py will save to DB and send confirmation back)
+      wsRef.current.send(JSON.stringify({
         session_id: activeChat,
         message: txt,
         type: 'text',
         admin_name: user?.full_name || 'Admin',
         timestamp: time
-      };
-      console.log('📤 Sending admin reply via WebSocket:', messageData);
-      wsRef.current.send(JSON.stringify(messageData));
+      }));
 
-      // ✅ Optimistic update - show message immediately
+      // ✅ Optimistic update with temp ID (will be replaced by WebSocket confirmation)
+      const tempId = 'temp_' + Date.now();
       setMessages(prev => [...prev, {
-        id: 'temp_' + Date.now(),
+        id: tempId,
         from: 'admin',
         text: txt,
         type: 'text',
@@ -421,6 +442,7 @@ const AdminChat = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
     } else {
+      // Fallback to HTTP if WebSocket is not connected
       try {
         const res = await api.post('/chat/admin/reply', {
           message: txt,
@@ -438,30 +460,30 @@ const AdminChat = () => {
       } catch (e) {
         console.error('Send failed:', e);
         setSnackbar({ open: true, message: 'Failed to send message', severity: 'error' });
+        // Restore input if send failed
+        setInput(txt);
       }
     }
     loadSessions();
   };
 
   const handleSelectCustomer = async (sessionId) => {
-    // ✅ Clear old profile first
     setCustomerProfile(null);
     setActiveChat(sessionId);
 
     await api.put(`/chat/read/${sessionId}`).catch(e => { });
 
-    // ✅ Update customers list - mark as read
     setCustomers(prev => prev.map(c =>
       c.session_id === sessionId ? { ...c, unread: 0 } : c
     ));
   };
-
 
   const handleReaction = async (msgId, emoji) => {
     const currentMsg = messages.find(m => m.id === msgId);
     const newReaction = currentMsg?.reaction === emoji ? null : emoji;
     setMessages(prev => prev.map(m => m.id === msgId ? { ...m, reaction: newReaction } : m));
     setEmojiPickerId(null);
+    
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'message_reaction',
@@ -470,7 +492,11 @@ const AdminChat = () => {
         reaction: newReaction
       }));
     } else {
-      try { await api.post(`/chat/messages/${msgId}/reaction`, { reaction: emoji }); } catch (e) { }
+      try { 
+        await api.post(`/chat/messages/${msgId}/reaction`, { reaction: emoji }); 
+      } catch (e) { 
+        console.error('Reaction failed:', e);
+      }
     }
   };
 
@@ -486,6 +512,7 @@ const AdminChat = () => {
       await api.put(`/chat/messages/${editDialog.message.id}`, { message: editText });
       setMessages(prev => prev.map(m => m.id === editDialog.message.id ? { ...m, text: editText, isEdited: true } : m));
       setEditDialog({ open: false, message: null });
+      
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({
           type: 'message_edited',
@@ -510,6 +537,7 @@ const AdminChat = () => {
       await api.delete(`/chat/messages/${deleteConfirm.id}`);
       setMessages(prev => prev.filter(m => m.id !== deleteConfirm.id));
       setDeleteConfirm(null);
+      
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({
           type: 'message_deleted',
@@ -549,7 +577,7 @@ const AdminChat = () => {
       const res = await api.post('/chat/upload/image', fd, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      // Image upload uses HTTP, so we add it directly
       setMessages(prev => [...prev, {
         id: res.data.id,
         from: 'admin',
@@ -557,7 +585,7 @@ const AdminChat = () => {
         imageUrl: res.data.url,
         text: '',
         senderName: 'You',
-        time
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }]);
     } catch (e) {
       console.error('Image upload failed:', e);
@@ -579,7 +607,6 @@ const AdminChat = () => {
       const res = await api.post('/chat/upload/file', fd, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const fi = {
         name: res.data.name || file.name,
         size: res.data.size || file.size,
@@ -592,7 +619,7 @@ const AdminChat = () => {
         fileData: fi,
         text: '',
         senderName: 'You',
-        time
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }]);
     } catch (e) {
       console.error('File upload failed:', e);
@@ -608,6 +635,16 @@ const AdminChat = () => {
 
   const confirmDeleteSession = async () => {
     if (!deleteSessionConfirm) return;
+    
+    // Send via WebSocket if connected
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'delete_session',
+        session_id: deleteSessionConfirm.sessionId
+      }));
+    }
+    
+    // Also delete via HTTP as backup
     try {
       await api.delete(`/chat/admin/session/${deleteSessionConfirm.sessionId}`);
       setCustomers(prev => prev.filter(c => c.session_id !== deleteSessionConfirm.sessionId));
@@ -631,7 +668,7 @@ const AdminChat = () => {
       };
       mr.onstop = async () => {
         clearInterval(recordingTimerRef.current);
-        const fd2 = recordingTime;
+        const duration = recordingTime;
         const blob = new Blob(chunks, { type: 'audio/webm' });
         if (blob.size === 0) {
           setIsRecording(false);
@@ -641,22 +678,21 @@ const AdminChat = () => {
         const fd = new FormData();
         fd.append('file', blob, `voice_${Date.now()}.webm`);
         fd.append('session_id', activeChat);
-        fd.append('duration', String(fd2));
+        fd.append('duration', String(duration));
         fd.append('is_admin', 'true');
         try {
           const res = await api.post('/chat/upload/voice', fd, {
             headers: { 'Content-Type': 'multipart/form-data' }
           });
-          const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           setMessages(prev => [...prev, {
             id: res.data.id,
             from: 'admin',
             type: 'voice',
             voiceUrl: res.data.url,
-            voiceDuration: res.data.duration || fd2,
+            voiceDuration: res.data.duration || duration,
             text: '',
             senderName: 'You',
-            time
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           }]);
         } catch (e) {
           console.error('Voice upload failed:', e);
@@ -704,12 +740,10 @@ const AdminChat = () => {
     (c.displayName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (c.sender_email || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
+  
   const activeCustomer = customers.find(c => c.session_id === activeChat);
-  // const displayName = customerProfile?.name || activeCustomer?.displayName || 'Customer';
-  // const displayEmail = customerProfile?.email || activeCustomer?.sender_email || '';
   const displayName = activeCustomer?.displayName || 'Customer';
   const displayEmail = activeCustomer?.sender_email || '';
-
 
   return (
     <Box sx={{ bgcolor: '#f0f2f5', height: '100vh', display: 'flex', overflow: 'hidden' }}>
@@ -862,14 +896,13 @@ const AdminChat = () => {
       }}>
         {activeChat ? (
           <>
-            {/* Chat Header with Customer Profile - ALWAYS CUSTOMER */}
+            {/* Chat Header */}
             <Box sx={{ px: { xs: 1.5, sm: 2 }, py: { xs: 0.8, sm: 1 }, bgcolor: 'white', borderBottom: '1px solid #e4e6eb', flexShrink: 0 }}>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <IconButton onClick={() => setActiveChat(null)} size="small">
                   <ArrowBack sx={{ fontSize: { xs: 20, sm: 22 } }} />
                 </IconButton>
 
-                {/* ✅ Customer Avatar */}
                 <Avatar
                   sx={{
                     width: { xs: 34, sm: 40 },
@@ -882,12 +915,10 @@ const AdminChat = () => {
                 </Avatar>
 
                 <Box>
-                  {/* ✅ ALWAYS show customer name */}
                   <Typography variant="subtitle2" fontWeight={600} color="#050505" fontSize={{ xs: '0.85rem', sm: '0.95rem' }}>
                     {activeCustomer?.displayName || 'Customer'}
                   </Typography>
 
-                  {/* ✅ Customer email if available */}
                   {activeCustomer?.sender_email && (
                     <Typography variant="caption" color="#65676b" display="block" fontSize="0.6rem">
                       {activeCustomer.sender_email}
