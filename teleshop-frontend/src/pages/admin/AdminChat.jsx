@@ -6,13 +6,14 @@ import {
   List, ListItem, ListItemAvatar, ListItemText, Badge, Button,
   CircularProgress, Paper, InputAdornment, useMediaQuery, useTheme,
   Snackbar, Alert, Menu, MenuItem, Dialog, DialogTitle,
-  DialogContent, DialogActions, LinearProgress,
+  DialogContent, DialogActions, LinearProgress, Tooltip, Divider,
 } from '@mui/material';
 import {
   Send, ArrowBack, Chat as ChatIcon, Person, SupportAgent,
   Circle, Refresh, Search, Edit, Delete, MoreHoriz, Close,
   InsertEmoticon, ContentCopy, Image, AttachFile, Mic, Stop,
-  PlayArrow, Pause,
+  PlayArrow, Pause, Email, Phone, Badge as BadgeIcon,
+  CheckCircle, Cancel, AccessTime, Info,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../api/axios';
@@ -65,6 +66,7 @@ const AdminChat = () => {
   const [customerProfile, setCustomerProfile] = useState(null);
   const [deleteSessionConfirm, setDeleteSessionConfirm] = useState(null);
   const [viewer, setViewer] = useState({ open: false, imageUrl: '', fileData: null, messageId: null });
+  const [showProfileDetails, setShowProfileDetails] = useState(false);
 
   const [messageMenu, setMessageMenu] = useState(null);
   const [selectedMessage, setSelectedMessage] = useState(null);
@@ -103,7 +105,12 @@ const AdminChat = () => {
     };
   }, []);
 
-  useEffect(() => { if (activeChat) { loadMessages(activeChat); } }, [activeChat]);
+  useEffect(() => { 
+    if (activeChat) { 
+      loadMessages(activeChat);
+      setShowProfileDetails(false);
+    } 
+  }, [activeChat]);
 
   useEffect(() => {
     if (activeChat) {
@@ -111,13 +118,16 @@ const AdminChat = () => {
       console.log('📋 Loading profile for customer:', customer);
 
       if (customer) {
+        // ✅ Build profile from customer data first
         const profileData = {
           name: customer.displayName || 'Customer',
           email: customer.sender_email || null,
           phone: customer.phone || null,
           is_registered: !!customer.user_id,
-          avatar_url: customer.avatar_url || null,
+          avatar_url: customer.avatar_url || null, // ✅ Include avatar_url
           user_id: customer.user_id || null,
+          is_active: customer.is_active || false,
+          created_at: customer.created_at || null,
         };
 
         if (customer.user_id) {
@@ -134,6 +144,8 @@ const AdminChat = () => {
           is_registered: false,
           avatar_url: null,
           user_id: null,
+          is_active: false,
+          created_at: null,
         };
         setCustomerProfile(fallbackProfile);
       }
@@ -185,7 +197,6 @@ const AdminChat = () => {
             const sid = data.session_id || data.from_user_id;
             if (activeChatRef.current === sid && data.message_id) {
               setMessages(prev => {
-                // ✅ Check for duplicates
                 if (prev.find(m => m.id === data.message_id)) return prev;
                 const msgType = data.message_type || 'text';
                 let messageData = {
@@ -219,10 +230,8 @@ const AdminChat = () => {
             loadSessions();
           }
           else if (data.type === 'message_sent') {
-            // ✅ This is the confirmation that our message was saved
             if (activeChatRef.current === data.session_id) {
               setMessages(prev => {
-                // ✅ Replace any temp messages with the real one
                 const hasTemp = prev.some(m => 
                   m.id && m.id.toString().startsWith('temp_') && 
                   m.from === 'admin' &&
@@ -231,7 +240,6 @@ const AdminChat = () => {
                 );
                 
                 if (hasTemp) {
-                  // Replace temp message with real one
                   return prev.map(m => 
                     (m.id && m.id.toString().startsWith('temp_') && 
                      m.from === 'admin' &&
@@ -251,7 +259,6 @@ const AdminChat = () => {
                   );
                 }
                 
-                // ✅ Check if real message already exists
                 if (prev.find(m => m.id === data.message_id)) return prev;
                 
                 const msgType = data.message_type || 'text';
@@ -338,7 +345,12 @@ const AdminChat = () => {
           message_type: c.message_type || messageType,
           displayName: c.sender_name || 'Customer',
           unread: c.session_id === activeChatRef.current ? 0 : (c.unread || 0),
-          user_id: c.user_id || null
+          user_id: c.user_id || null,
+          is_active: c.is_active || false,
+          created_at: c.created_at || null,
+          avatar_url: c.avatar_url || null, // ✅ Pass through avatar_url
+          phone: c.phone || null,
+          sender_email: c.sender_email || null,
         };
       }));
     } catch (e) {
@@ -362,8 +374,11 @@ const AdminChat = () => {
           email: res.data.email || fallbackProfile.email,
           phone: res.data.phone || fallbackProfile.phone,
           is_registered: res.data.is_registered || false,
-          avatar_url: res.data.avatar_url || null,
+          avatar_url: res.data.avatar_url || fallbackProfile.avatar_url || null, // ✅ Include avatar
           user_id: userId,
+          is_active: res.data.is_active || false,
+          created_at: res.data.created_at || null,
+          telegram_chat_id: res.data.telegram_chat_id || null,
         };
         console.log('✅ Setting customer profile:', profile);
         setCustomerProfile(profile);
@@ -416,7 +431,6 @@ const AdminChat = () => {
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      // ✅ Send via WebSocket only (chat_ws.py will save to DB and send confirmation back)
       wsRef.current.send(JSON.stringify({
         session_id: activeChat,
         message: txt,
@@ -425,7 +439,6 @@ const AdminChat = () => {
         timestamp: time
       }));
 
-      // ✅ Optimistic update with temp ID (will be replaced by WebSocket confirmation)
       const tempId = 'temp_' + Date.now();
       setMessages(prev => [...prev, {
         id: tempId,
@@ -442,7 +455,6 @@ const AdminChat = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 100);
     } else {
-      // Fallback to HTTP if WebSocket is not connected
       try {
         const res = await api.post('/chat/admin/reply', {
           message: txt,
@@ -460,7 +472,6 @@ const AdminChat = () => {
       } catch (e) {
         console.error('Send failed:', e);
         setSnackbar({ open: true, message: 'Failed to send message', severity: 'error' });
-        // Restore input if send failed
         setInput(txt);
       }
     }
@@ -470,6 +481,7 @@ const AdminChat = () => {
   const handleSelectCustomer = async (sessionId) => {
     setCustomerProfile(null);
     setActiveChat(sessionId);
+    setShowProfileDetails(false);
 
     await api.put(`/chat/read/${sessionId}`).catch(e => { });
 
@@ -577,7 +589,6 @@ const AdminChat = () => {
       const res = await api.post('/chat/upload/image', fd, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      // Image upload uses HTTP, so we add it directly
       setMessages(prev => [...prev, {
         id: res.data.id,
         from: 'admin',
@@ -636,7 +647,6 @@ const AdminChat = () => {
   const confirmDeleteSession = async () => {
     if (!deleteSessionConfirm) return;
     
-    // Send via WebSocket if connected
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'delete_session',
@@ -644,7 +654,6 @@ const AdminChat = () => {
       }));
     }
     
-    // Also delete via HTTP as backup
     try {
       await api.delete(`/chat/admin/session/${deleteSessionConfirm.sessionId}`);
       setCustomers(prev => prev.filter(c => c.session_id !== deleteSessionConfirm.sessionId));
@@ -736,14 +745,40 @@ const AdminChat = () => {
     audioRef.current.onended = () => setPlayingAudio(null);
   };
 
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  // ✅ Helper function to get the best available avatar URL
+  const getAvatarUrl = () => {
+    return customerProfile?.avatar_url || activeCustomer?.avatar_url || null;
+  };
+
+  // ✅ Helper function to get the best available display name
+  const getDisplayName = () => {
+    return customerProfile?.name || activeCustomer?.displayName || 'Customer';
+  };
+
+  // ✅ Helper function to get initials for avatar fallback
+  const getInitials = () => {
+    const name = getDisplayName();
+    return name.charAt(0).toUpperCase();
+  };
+
   const filteredCustomers = customers.filter(c =>
     (c.displayName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (c.sender_email || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
   
   const activeCustomer = customers.find(c => c.session_id === activeChat);
-  const displayName = activeCustomer?.displayName || 'Customer';
-  const displayEmail = activeCustomer?.sender_email || '';
 
   return (
     <Box sx={{ bgcolor: '#f0f2f5', height: '100vh', display: 'flex', overflow: 'hidden' }}>
@@ -843,6 +878,7 @@ const AdminChat = () => {
                     overlap="circular"
                     sx={{ '& .MuiBadge-badge': { fontSize: '0.6rem', height: 16, minWidth: 16 } }}
                   >
+                    {/* ✅ Sidebar avatar with proper fallback */}
                     <Avatar
                       sx={{
                         width: { xs: 40, sm: 48 },
@@ -851,7 +887,11 @@ const AdminChat = () => {
                       }}
                       src={c.avatar_url || ''}
                     >
-                      {!c.avatar_url && <Person sx={{ fontSize: { xs: 20, sm: 24 } }} />}
+                      {!c.avatar_url && (
+                        <Typography sx={{ fontSize: { xs: 18, sm: 22 }, fontWeight: 700, color: 'white' }}>
+                          {(c.displayName || 'C').charAt(0).toUpperCase()}
+                        </Typography>
+                      )}
                     </Avatar>
                   </Badge>
                 </ListItemAvatar>
@@ -896,36 +936,268 @@ const AdminChat = () => {
       }}>
         {activeChat ? (
           <>
-            {/* Chat Header */}
-            <Box sx={{ px: { xs: 1.5, sm: 2 }, py: { xs: 0.8, sm: 1 }, bgcolor: 'white', borderBottom: '1px solid #e4e6eb', flexShrink: 0 }}>
+            {/* Chat Header with Complete Customer Profile */}
+            <Box sx={{ 
+              px: { xs: 1.5, sm: 2 }, 
+              py: { xs: 0.8, sm: 1 }, 
+              bgcolor: 'white', 
+              borderBottom: '1px solid #e4e6eb', 
+              flexShrink: 0 
+            }}>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <IconButton onClick={() => setActiveChat(null)} size="small">
                   <ArrowBack sx={{ fontSize: { xs: 20, sm: 22 } }} />
                 </IconButton>
 
-                <Avatar
+                {/* ✅ Header Avatar - Fixed */}
+                <Badge
+                  overlap="circular"
+                  anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                  variant="dot"
                   sx={{
-                    width: { xs: 34, sm: 40 },
-                    height: { xs: 34, sm: 40 },
-                    bgcolor: customerProfile?.avatar_url ? 'transparent' : '#1877f2'
+                    '& .MuiBadge-badge': {
+                      backgroundColor: customerProfile?.is_active ? '#22c55e' : '#94a3b8',
+                      color: customerProfile?.is_active ? '#22c55e' : '#94a3b8',
+                      boxShadow: `0 0 0 2px white`,
+                      width: 12,
+                      height: 12,
+                      borderRadius: '50%'
+                    }
                   }}
-                  src={customerProfile?.avatar_url || ''}
                 >
-                  {!customerProfile?.avatar_url && <Person sx={{ fontSize: { xs: 18, sm: 20 } }} />}
-                </Avatar>
+                  <Avatar
+                    sx={{
+                      width: { xs: 40, sm: 48 },
+                      height: { xs: 40, sm: 48 },
+                      bgcolor: getAvatarUrl() ? 'transparent' : '#1877f2',
+                      cursor: 'pointer'
+                    }}
+                    src={getAvatarUrl() || ''}
+                    onClick={() => setShowProfileDetails(!showProfileDetails)}
+                  >
+                    {!getAvatarUrl() && (
+                      <Typography sx={{ fontSize: { xs: 18, sm: 22 }, fontWeight: 700, color: 'white' }}>
+                        {getInitials()}
+                      </Typography>
+                    )}
+                  </Avatar>
+                </Badge>
 
-                <Box>
-                  <Typography variant="subtitle2" fontWeight={600} color="#050505" fontSize={{ xs: '0.85rem', sm: '0.95rem' }}>
-                    {activeCustomer?.displayName || 'Customer'}
-                  </Typography>
-
-                  {activeCustomer?.sender_email && (
-                    <Typography variant="caption" color="#65676b" display="block" fontSize="0.6rem">
-                      {activeCustomer.sender_email}
+                <Box 
+                  sx={{ flex: 1, cursor: 'pointer' }}
+                  onClick={() => setShowProfileDetails(!showProfileDetails)}
+                >
+                  <Stack direction="row" alignItems="center" spacing={0.5}>
+                    <Typography variant="subtitle2" fontWeight={600} color="#050505" fontSize={{ xs: '0.85rem', sm: '0.95rem' }}>
+                      {getDisplayName()}
                     </Typography>
-                  )}
+                    
+                    {customerProfile?.is_registered ? (
+                      <Tooltip title="Registered User">
+                        <CheckCircle sx={{ fontSize: 16, color: '#22c55e' }} />
+                      </Tooltip>
+                    ) : (
+                      <Tooltip title="Guest User">
+                        <Info sx={{ fontSize: 16, color: '#94a3b8' }} />
+                      </Tooltip>
+                    )}
+                    
+                    {customerProfile?.is_active && (
+                      <Chip 
+                        label="Online" 
+                        size="small" 
+                        sx={{ 
+                          height: 18, 
+                          fontSize: '0.6rem',
+                          bgcolor: '#dcfce7',
+                          color: '#15803d',
+                          fontWeight: 600
+                        }} 
+                      />
+                    )}
+                  </Stack>
+
+                  <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.3 }}>
+                    {customerProfile?.email && (
+                      <Stack direction="row" spacing={0.3} alignItems="center">
+                        <Email sx={{ fontSize: 12, color: '#65676b' }} />
+                        <Typography variant="caption" color="#65676b" fontSize="0.65rem" noWrap sx={{ maxWidth: 150 }}>
+                          {customerProfile.email}
+                        </Typography>
+                      </Stack>
+                    )}
+                  </Stack>
                 </Box>
+
+                <Tooltip title="View Profile Details">
+                  <IconButton 
+                    size="small"
+                    onClick={() => setShowProfileDetails(!showProfileDetails)}
+                    sx={{ 
+                      bgcolor: showProfileDetails ? '#e7f3ff' : 'transparent',
+                      '&:hover': { bgcolor: '#f0f2f5' }
+                    }}
+                  >
+                    <Info sx={{ fontSize: 18, color: showProfileDetails ? '#1877f2' : '#65676b' }} />
+                  </IconButton>
+                </Tooltip>
               </Stack>
+
+              {/* Expanded Profile Details Panel */}
+              {showProfileDetails && customerProfile && (
+                <Paper 
+                  elevation={0}
+                  sx={{ 
+                    mt: 1.5, 
+                    p: 2, 
+                    bgcolor: '#f8fafc', 
+                    borderRadius: 2,
+                    border: '1px solid #e2e8f0'
+                  }}
+                >
+                  <Stack spacing={1.5}>
+                    <Stack direction="row" spacing={2} alignItems="center">
+                      {/* ✅ Profile panel avatar - Fixed */}
+                      <Avatar
+                        sx={{
+                          width: 64,
+                          height: 64,
+                          bgcolor: getAvatarUrl() ? 'transparent' : '#1877f2',
+                          border: '3px solid white',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                        }}
+                        src={getAvatarUrl() || ''}
+                      >
+                        {!getAvatarUrl() && (
+                          <Typography sx={{ fontSize: 28, fontWeight: 700, color: 'white' }}>
+                            {getInitials()}
+                          </Typography>
+                        )}
+                      </Avatar>
+                      
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="subtitle1" fontWeight={700} color="#1a1a1a">
+                          Customer Profile
+                        </Typography>
+                        <Typography variant="body2" color="#65676b">
+                          {customerProfile.is_registered ? 'Registered User' : 'Guest User'}
+                        </Typography>
+                      </Box>
+                      
+                      <IconButton size="small" onClick={() => setShowProfileDetails(false)}>
+                        <Close sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Stack>
+
+                    <Divider />
+
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
+                      <Box>
+                        <Typography variant="caption" color="#65676b" fontWeight={600}>
+                          Full Name
+                        </Typography>
+                        <Typography variant="body2" color="#050505" fontWeight={500}>
+                          {customerProfile.name || 'N/A'}
+                        </Typography>
+                      </Box>
+
+                      <Box>
+                        <Typography variant="caption" color="#65676b" fontWeight={600}>
+                          Email
+                        </Typography>
+                        <Stack direction="row" spacing={0.5} alignItems="center">
+                          <Email sx={{ fontSize: 14, color: '#65676b' }} />
+                          <Typography variant="body2" color="#050505">
+                            {customerProfile.email || 'N/A'}
+                          </Typography>
+                        </Stack>
+                      </Box>
+
+                      <Box>
+                        <Typography variant="caption" color="#65676b" fontWeight={600}>
+                          Phone
+                        </Typography>
+                        <Stack direction="row" spacing={0.5} alignItems="center">
+                          <Phone sx={{ fontSize: 14, color: '#65676b' }} />
+                          <Typography variant="body2" color="#050505">
+                            {customerProfile.phone || 'N/A'}
+                          </Typography>
+                        </Stack>
+                      </Box>
+
+                      <Box>
+                        <Typography variant="caption" color="#65676b" fontWeight={600}>
+                          User ID
+                        </Typography>
+                        <Typography variant="body2" color="#050505" fontFamily="monospace" fontSize="0.8rem">
+                          {customerProfile.user_id ? `#${customerProfile.user_id}` : 'Guest'}
+                        </Typography>
+                      </Box>
+
+                      <Box>
+                        <Typography variant="caption" color="#65676b" fontWeight={600}>
+                          Account Status
+                        </Typography>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Chip
+                            icon={customerProfile.is_registered ? <CheckCircle sx={{ fontSize: 14 }} /> : <Cancel sx={{ fontSize: 14 }} />}
+                            label={customerProfile.is_registered ? 'Registered' : 'Guest'}
+                            size="small"
+                            sx={{
+                              height: 22,
+                              fontSize: '0.7rem',
+                              bgcolor: customerProfile.is_registered ? '#dcfce7' : '#f1f5f9',
+                              color: customerProfile.is_registered ? '#15803d' : '#64748b',
+                            }}
+                          />
+                        </Stack>
+                      </Box>
+
+                      <Box>
+                        <Typography variant="caption" color="#65676b" fontWeight={600}>
+                          Active Status
+                        </Typography>
+                        <Chip
+                          icon={customerProfile.is_active ? <Circle sx={{ fontSize: 8, color: '#22c55e' }} /> : <Circle sx={{ fontSize: 8, color: '#94a3b8' }} />}
+                          label={customerProfile.is_active ? 'Active Now' : 'Offline'}
+                          size="small"
+                          sx={{
+                            height: 22,
+                            fontSize: '0.7rem',
+                            bgcolor: customerProfile.is_active ? '#dcfce7' : '#f1f5f9',
+                            color: customerProfile.is_active ? '#15803d' : '#64748b',
+                          }}
+                        />
+                      </Box>
+
+                      {customerProfile.created_at && (
+                        <Box sx={{ gridColumn: { sm: '1 / -1' } }}>
+                          <Typography variant="caption" color="#65676b" fontWeight={600}>
+                            Member Since
+                          </Typography>
+                          <Stack direction="row" spacing={0.5} alignItems="center">
+                            <AccessTime sx={{ fontSize: 14, color: '#65676b' }} />
+                            <Typography variant="body2" color="#050505">
+                              {formatDate(customerProfile.created_at)}
+                            </Typography>
+                          </Stack>
+                        </Box>
+                      )}
+
+                      {customerProfile.telegram_chat_id && (
+                        <Box sx={{ gridColumn: { sm: '1 / -1' } }}>
+                          <Typography variant="caption" color="#65676b" fontWeight={600}>
+                            Telegram Connected
+                          </Typography>
+                          <Typography variant="body2" color="#22c55e" fontWeight={500}>
+                            ✅ Yes (ID: {customerProfile.telegram_chat_id})
+                          </Typography>
+                        </Box>
+                      )}
+                    </Box>
+                  </Stack>
+                </Paper>
+              )}
             </Box>
 
             {/* Messages */}
@@ -933,34 +1205,96 @@ const AdminChat = () => {
               {loading ? (
                 <Box textAlign="center" py={6}><CircularProgress size={28} sx={{ color: '#1877f2' }} /></Box>
               ) : messages.length === 0 ? (
-                <Box textAlign="center" pt={8}>
+                <Box textAlign="center" pt={4}>
+                  {/* ✅ Empty state avatar - Fixed */}
                   <Avatar
                     sx={{
-                      width: 64,
-                      height: 64,
-                      bgcolor: customerProfile?.avatar_url ? 'transparent' : '#1877f2',
+                      width: 80,
+                      height: 80,
+                      bgcolor: getAvatarUrl() ? 'transparent' : '#1877f2',
                       mx: 'auto',
-                      mb: 2
+                      mb: 2,
+                      border: '4px solid white',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
                     }}
-                    src={customerProfile?.avatar_url || ''}
+                    src={getAvatarUrl() || ''}
                   >
-                    {!customerProfile?.avatar_url && <Person sx={{ fontSize: 32 }} />}
+                    {!getAvatarUrl() && (
+                      <Typography sx={{ fontSize: 40, fontWeight: 700, color: 'white' }}>
+                        {getInitials()}
+                      </Typography>
+                    )}
                   </Avatar>
-                  <Typography fontWeight={600} color="#050505" fontSize="1.1rem">
-                    {customerProfile?.name || displayName}
+                  
+                  <Typography fontWeight={700} color="#050505" fontSize="1.2rem" mb={0.5}>
+                    {getDisplayName()}
                   </Typography>
-                  {customerProfile?.email && (
-                    <Typography variant="body2" color="#65676b" fontSize="0.85rem">
-                      {customerProfile.email}
-                    </Typography>
-                  )}
-                  {customerProfile?.phone && (
-                    <Typography variant="body2" color="#65676b" fontSize="0.85rem">
-                      📞 {customerProfile.phone}
-                    </Typography>
-                  )}
-                  <Typography variant="body2" color="#94a3b8" mt={2}>
-                    {customerProfile?.is_registered ? 'No messages yet. Start the conversation!' : 'Guest user - No messages yet.'}
+
+                  <Stack spacing={1.5} sx={{ maxWidth: 400, mx: 'auto', mt: 3 }}>
+                    {customerProfile?.email && (
+                      <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: 'white' }}>
+                        <Email sx={{ color: '#1877f2', fontSize: 20 }} />
+                        <Box>
+                          <Typography variant="caption" color="#65676b" fontWeight={600}>Email</Typography>
+                          <Typography variant="body2" color="#050505">{customerProfile.email}</Typography>
+                        </Box>
+                      </Paper>
+                    )}
+
+                    {customerProfile?.phone && (
+                      <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: 'white' }}>
+                        <Phone sx={{ color: '#1877f2', fontSize: 20 }} />
+                        <Box>
+                          <Typography variant="caption" color="#65676b" fontWeight={600}>Phone</Typography>
+                          <Typography variant="body2" color="#050505">{customerProfile.phone}</Typography>
+                        </Box>
+                      </Paper>
+                    )}
+
+                    <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: 'white' }}>
+                      <BadgeIcon sx={{ color: '#1877f2', fontSize: 20 }} />
+                      <Box>
+                        <Typography variant="caption" color="#65676b" fontWeight={600}>Account Type</Typography>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Typography variant="body2" color="#050505">
+                            {customerProfile?.is_registered ? 'Registered User' : 'Guest User'}
+                          </Typography>
+                          {customerProfile?.user_id && (
+                            <Chip label={`ID: ${customerProfile.user_id}`} size="small" sx={{ height: 20, fontSize: '0.65rem' }} />
+                          )}
+                        </Stack>
+                      </Box>
+                    </Paper>
+
+                    {customerProfile?.is_registered && (
+                      <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: 'white' }}>
+                        {customerProfile?.is_active ? (
+                          <Circle sx={{ color: '#22c55e', fontSize: 20 }} />
+                        ) : (
+                          <Circle sx={{ color: '#94a3b8', fontSize: 20 }} />
+                        )}
+                        <Box>
+                          <Typography variant="caption" color="#65676b" fontWeight={600}>Status</Typography>
+                          <Typography variant="body2" color={customerProfile?.is_active ? '#22c55e' : '#64748b'}>
+                            {customerProfile?.is_active ? 'Active Now' : 'Offline'}
+                          </Typography>
+                        </Box>
+                      </Paper>
+                    )}
+
+                    {customerProfile?.created_at && (
+                      <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: 'white' }}>
+                        <AccessTime sx={{ color: '#1877f2', fontSize: 20 }} />
+                        <Box>
+                          <Typography variant="caption" color="#65676b" fontWeight={600}>Member Since</Typography>
+                          <Typography variant="body2" color="#050505">{formatDate(customerProfile.created_at)}</Typography>
+                        </Box>
+                      </Paper>
+                    )}
+                  </Stack>
+
+                  <Typography variant="body2" color="#94a3b8" mt={3}>
+                    No messages yet. Start the conversation!
                   </Typography>
                 </Box>
               ) : (
@@ -977,21 +1311,28 @@ const AdminChat = () => {
                       }}
                     >
                       {m.from === 'customer' && (
+                        /* ✅ Message avatar - Fixed */
                         <Avatar
                           sx={{
                             width: 28,
                             height: 28,
                             mr: 0.5,
-                            bgcolor: '#1877f2',
+                            bgcolor: getAvatarUrl() ? 'transparent' : '#1877f2',
                             flexShrink: 0,
                             mt: 0.5,
                             display: { xs: 'none', sm: 'flex' }
                           }}
+                          src={getAvatarUrl() || ''}
                         >
-                          <Person sx={{ fontSize: 14 }} />
+                          {!getAvatarUrl() && (
+                            <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'white' }}>
+                              {getInitials()}
+                            </Typography>
+                          )}
                         </Avatar>
                       )}
                       <Box sx={{ maxWidth: { xs: '90%', sm: '70%', md: '60%' }, position: 'relative' }}>
+                        {/* Message Actions Bar */}
                         <Box
                           className="msg-actions"
                           sx={{
@@ -1048,6 +1389,7 @@ const AdminChat = () => {
                           </IconButton>
                         </Box>
 
+                        {/* Emoji Picker */}
                         {emojiPickerId === m.id && (
                           <Box sx={{ position: 'absolute', bottom: m.reaction ? 50 : 30, right: m.from === 'admin' ? 0 : 'auto', left: m.from === 'customer' ? 0 : 'auto', zIndex: 1000 }}>
                             <Box sx={{ position: 'relative' }}>
@@ -1072,6 +1414,7 @@ const AdminChat = () => {
                           </Box>
                         )}
 
+                        {/* Message Bubble */}
                         <Box
                           sx={{
                             px: m.type === 'text' ? 1.5 : 0,
@@ -1221,6 +1564,7 @@ const AdminChat = () => {
                           )}
                         </Box>
 
+                        {/* Reaction */}
                         {m.reaction && (
                           <Box
                             sx={{
@@ -1249,6 +1593,7 @@ const AdminChat = () => {
                           </Box>
                         )}
 
+                        {/* Timestamp */}
                         <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.2, mx: 0.5 }}>
                           {m.from === 'customer' && m.senderName && m.senderName !== 'Customer' && (
                             <Typography variant="caption" fontWeight={600} color="#1877f2" fontSize="0.6rem">
