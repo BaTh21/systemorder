@@ -419,7 +419,7 @@ async def mark_as_read(
 async def get_chat_sessions(
     db: AsyncSession = Depends(get_db)
 ):
-    """Admin: Get all unique chat sessions"""
+    """Admin: Get all unique chat sessions with real customer names"""
     result = await db.execute(
         select(ChatMessage).order_by(ChatMessage.created_at.desc())
     )
@@ -429,33 +429,42 @@ async def get_chat_sessions(
     
     for msg in all_messages:
         if msg.session_id not in sessions:
+            # ✅ Get user info for the session
+            user_info = None
+            if msg.user_id:
+                user_result = await db.execute(select(User).where(User.id == msg.user_id))
+                user_info = user_result.scalars().first()
+            
             sessions[msg.session_id] = {
                 "session_id": msg.session_id,
-                "sender_name": "Customer",
-                "sender_email": None,
+                "sender_name": user_info.full_name if user_info else msg.sender_name or "Customer",
+                "sender_email": user_info.email if user_info else msg.sender_email,
+                "user_id": msg.user_id,
                 "last_message": msg.message[:100] if msg.message else "",
-                "message_type": msg.message_type or "text",  
+                "message_type": msg.message_type or "text",
                 "unread": 0,
                 "created_at": str(msg.created_at),
-                "user_id": msg.user_id,
+                "is_registered": bool(user_info),
+                "phone": user_info.phone if user_info else None,
+                "avatar_url": user_info.avatar_url if user_info else None,
             }
     
+    # ✅ Update unread counts and ensure correct names
     for msg in all_messages:
         if msg.session_id in sessions:
             if not msg.is_admin_reply and not msg.is_read:
                 sessions[msg.session_id]["unread"] += 1
             
-            if not msg.is_admin_reply and msg.sender_name and msg.sender_name not in ["Guest", "Customer", ""]:
-                sessions[msg.session_id]["sender_name"] = msg.sender_name
-                if msg.sender_email:
-                    sessions[msg.session_id]["sender_email"] = msg.sender_email
-            
+            # ✅ Use user's full name if available
             if msg.user_id and not msg.is_admin_reply:
                 user_result = await db.execute(select(User).where(User.id == msg.user_id))
                 user = user_result.scalars().first()
                 if user:
                     sessions[msg.session_id]["sender_name"] = user.full_name
                     sessions[msg.session_id]["sender_email"] = user.email
+                    sessions[msg.session_id]["is_registered"] = True
+                    sessions[msg.session_id]["phone"] = user.phone
+                    sessions[msg.session_id]["avatar_url"] = user.avatar_url
     
     return list(sessions.values())
 
@@ -770,3 +779,48 @@ async def download_file(
     if "cloudinary" in file_url and "/upload/" in file_url:
         file_url = file_url.replace("/upload/", "/upload/fl_attachment/")
     return StarletteRedirect(url=file_url, status_code=302)
+
+@router.get("/customer-profile-by-user/{user_id}")
+async def get_customer_profile_by_user_id(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get customer profile by user ID (for admin to see real customer info)
+    """
+    
+    # Check if admin
+    if current_user.role.value != "admin":
+        raise HTTPException(403, "Only admins can view customer profiles")
+    
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalars().first()
+    
+    if not user:
+        return {
+            "user_id": user_id,
+            "name": "Customer",
+            "email": None,
+            "phone": None,
+            "is_registered": False,
+            "avatar_url": None,
+            "is_active": False,
+            "is_admin": False
+        }
+    
+    # ✅ Check if user is admin
+    is_admin = user.role.value == "admin" if user.role else False
+    
+    return {
+        "user_id": user.id,
+        "name": user.full_name,
+        "email": user.email,
+        "phone": user.phone,
+        "is_registered": True,
+        "is_active": user.is_active,
+        "avatar_url": user.avatar_url,
+        "telegram_chat_id": user.telegram_chat_id,
+        "created_at": str(user.created_at) if user.created_at else None,
+        "is_admin": is_admin  # ✅ Add this flag
+    }
