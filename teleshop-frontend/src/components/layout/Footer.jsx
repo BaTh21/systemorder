@@ -118,9 +118,9 @@ const Footer = () => {
 
             <Stack spacing={1}>
               {[
-                { icon: <Email sx={{ fontSize: { xs: 14, sm: 16 }, color: '#f59e0b' }} />, text: 'support@teleshop.com' },
-                { icon: <Phone sx={{ fontSize: { xs: 14, sm: 16 }, color: '#f59e0b' }} />, text: '+1 234 567 8900' },
-                { icon: <LocationOn sx={{ fontSize: { xs: 14, sm: 16 }, color: '#f59e0b' }} />, text: '123 Commerce St, New York, NY' },
+                { icon: <Email sx={{ fontSize: { xs: 14, sm: 16 }, color: '#f59e0b' }} />, text: 'mokkolsambath07@gmail.com' },
+                { icon: <Phone sx={{ fontSize: { xs: 14, sm: 16 }, color: '#f59e0b' }} />, text: '+855 15 274 578' },
+                { icon: <LocationOn sx={{ fontSize: { xs: 14, sm: 16 }, color: '#f59e0b' }} />, text: 'Boeung Salang, Khan Toul Kork, Phnom Penh, Cambodia' },
               ].map((item, i) => (
                 <Stack key={i} direction="row" spacing={1.5} alignItems="center">
                   {item.icon}

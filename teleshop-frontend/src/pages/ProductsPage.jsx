@@ -192,47 +192,7 @@ const ProductsPage = () => {
       </List>
 
       <Divider sx={{ mb: 2 }} />
-
-      {/* Price Range */}
-      <Typography variant="caption" fontWeight={600} color="#94a3b8" textTransform="uppercase" letterSpacing={1} mb={1} display="block">
-        Price Range
-      </Typography>
-      <Slider
-        value={priceRange}
-        onChange={(e, v) => setPriceRange(v)}
-        onChangeCommitted={handlePriceApply}
-        min={0}
-        max={5000}
-        step={10}
-        size="small"
-        sx={{ color: '#2563eb', mb: 1 }}
-      />
-      <Stack direction="row" justifyContent="space-between" mb={2}>
-        <Typography variant="caption" color="#94a3b8">$0</Typography>
-        <Typography variant="caption" fontWeight={600} color="#2563eb">${priceRange[0]} - ${priceRange[1]}</Typography>
-        <Typography variant="caption" color="#94a3b8">$5000</Typography>
-      </Stack>
-
-      {/* Rating */}
-      <Divider sx={{ mb: 2 }} />
-      <Typography variant="caption" fontWeight={600} color="#94a3b8" textTransform="uppercase" letterSpacing={1} mb={1} display="block">
-        Rating
-      </Typography>
-      {[4, 3, 2, 1].map(rating => (
-        <FormControlLabel
-          key={rating}
-          control={<Checkbox size="small" sx={{ py: 0.3 }} />}
-          label={
-            <Stack direction="row" spacing={0.5} alignItems="center">
-              {[...Array(5)].map((_, i) => (
-                <Star key={i} sx={{ fontSize: 14, color: i < rating ? '#f59e0b' : '#e2e8f0' }} />
-              ))}
-              <Typography variant="caption" color="#64748b">& up</Typography>
-            </Stack>
-          }
-          sx={{ display: 'flex', mb: -0.5 }}
-        />
-      ))}
+      
     </>
   );
 
