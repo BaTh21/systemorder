@@ -1,5 +1,5 @@
 // src/components/layout/Navbar.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import {
   AppBar, Toolbar, Typography, Button, IconButton, Badge, Box,
@@ -29,6 +29,15 @@ const categoryIcons = {
   'gaming-entertainment': <SportsEsports fontSize="small" />,
 };
 
+const getWsUrl = () => {
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+  if (apiUrl.includes('onrender.com')) {
+    return apiUrl.replace('https://', 'wss://').replace('/api', '');
+  } else {
+    return apiUrl.replace('http://', 'ws://').replace('/api', '');
+  }
+};
+
 const Navbar = () => {
   const { user, logout, isAdmin } = useAuth();
   const { totalItems } = useCart();
@@ -42,27 +51,114 @@ const Navbar = () => {
   const [hoveredCategory, setHoveredCategory] = useState(null);
   const [mobileDrawer, setMobileDrawer] = useState(false);
   const [unreadChats, setUnreadChats] = useState(0);
+  
+  const wsRef = useRef(null);
+  const reconnectTimerRef = useRef(null);
+  const token = localStorage.getItem('access_token');
 
+  // Fetch categories
   useEffect(() => {
     fetchCategories();
   }, []);
 
-  // Fetch unread chat count for admin
+  // Fetch initial unread count and setup WebSocket
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!isAdmin) {
+      setUnreadChats(0);
+      return;
+    }
     
     const fetchUnread = async () => {
       try {
         const res = await api.get('/chat/admin/sessions');
         const unread = (res.data || []).reduce((sum, c) => sum + (c.unread || 0), 0);
         setUnreadChats(unread);
-      } catch(e) {}
+      } catch(e) {
+        console.error('Failed to fetch unread count:', e);
+      }
     };
     
     fetchUnread();
-    const interval = setInterval(fetchUnread, 15000);
-    return () => clearInterval(interval);
-  }, [isAdmin]);
+    
+    // Setup WebSocket for real-time updates
+    setupWebSocket();
+    
+    // Cleanup
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+      }
+    };
+  }, [isAdmin, token]);
+
+  // Setup WebSocket connection
+  const setupWebSocket = () => {
+    if (!token || !isAdmin) return;
+    
+    if (wsRef.current) {
+      try { wsRef.current.close(); } catch (e) {}
+      wsRef.current = null;
+    }
+
+    try {
+      const wsUrl = `${getWsUrl()}/ws/admin/${token}`;
+      console.log('🔗 Navbar WebSocket connecting:', wsUrl);
+      
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('✅ Navbar WebSocket connected');
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = null;
+        }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('📩 Navbar WebSocket message:', data);
+          
+          // Update unread count when new customer message arrives
+          if (data.type === 'customer_message') {
+            setUnreadChats(prev => prev + 1);
+          }
+        } catch (e) {
+          console.error('WebSocket message error:', e);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('❌ Navbar WebSocket disconnected');
+        // Attempt to reconnect after 5 seconds
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current);
+        }
+        reconnectTimerRef.current = setTimeout(() => {
+          console.log('🔄 Reconnecting Navbar WebSocket...');
+          setupWebSocket();
+        }, 5000);
+      };
+
+      ws.onerror = (error) => {
+        console.error('❌ Navbar WebSocket error:', error);
+      };
+
+    } catch (error) {
+      console.error('❌ Failed to create Navbar WebSocket:', error);
+      // Retry after 5 seconds
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+      }
+      reconnectTimerRef.current = setTimeout(() => {
+        setupWebSocket();
+      }, 5000);
+    }
+  };
 
   const fetchCategories = async () => {
     try {
@@ -80,6 +176,14 @@ const Navbar = () => {
     setHoveredCategory(null);
     setMobileDrawer(false);
     navigate(`/products?category_id=${categoryId}`);
+  };
+
+  // Reset unread count when navigating to chat
+  const handleChatClick = () => {
+    if (isAdmin) {
+      setUnreadChats(0);
+    }
+    navigate('/admin/chat');
   };
 
   return (
@@ -130,10 +234,31 @@ const Navbar = () => {
 
             <Box sx={{ flexGrow: 1 }} />
 
-            {/* Admin Chat Icon with Badge */}
+            {/* Admin Chat Icon with Real-time Badge */}
             {isAdmin && (
-              <IconButton component={RouterLink} to="/admin/chat" sx={{ color: 'white', '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}>
-                <Badge badgeContent={unreadChats} color="error" max={99}>
+              <IconButton 
+                onClick={handleChatClick}
+                sx={{ 
+                  color: 'white', 
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
+                }}
+              >
+                <Badge 
+                  badgeContent={unreadChats} 
+                  color="error" 
+                  max={99}
+                  sx={{
+                    '& .MuiBadge-badge': {
+                      backgroundColor: '#ef4444',
+                      color: 'white',
+                      fontWeight: 'bold',
+                      fontSize: '0.65rem',
+                      height: 20,
+                      minWidth: 20,
+                      animation: unreadChats > 0 ? 'pulse 2s infinite' : 'none',
+                    },
+                  }}
+                >
                   <Chat />
                 </Badge>
               </IconButton>
@@ -146,7 +271,7 @@ const Navbar = () => {
               </Badge>
             </IconButton>
 
-            {/* 🔴 FIX: Only ONE user menu button */}
+            {/* User Menu */}
             {user ? (
               <>
                 <Button
@@ -186,6 +311,14 @@ const Navbar = () => {
                       </Box>
                     </Stack>
                     {isAdmin && <Chip label="Admin" size="small" color="primary" sx={{ mt: 1, height: 20, fontSize: '0.65rem' }} />}
+                    {unreadChats > 0 && (
+                      <Chip 
+                        label={`${unreadChats} new message${unreadChats > 1 ? 's' : ''}`} 
+                        size="small" 
+                        color="error" 
+                        sx={{ mt: 1, height: 20, fontSize: '0.65rem' }}
+                      />
+                    )}
                   </Box>
 
                   <Box sx={{ py: 1 }}>
@@ -205,9 +338,33 @@ const Navbar = () => {
                         <ListItemIcon><Dashboard fontSize="small" sx={{ color: '#2563eb' }} /></ListItemIcon>
                         <ListItemText primary="Admin Dashboard" primaryTypographyProps={{ fontWeight: 600, color: '#2563eb' }} />
                       </MenuItem>
-                      <MenuItem onClick={() => { setUserMenu(null); navigate('/admin/chat'); }}>
-                        <ListItemIcon><Chat fontSize="small" sx={{ color: '#0891b2' }} /></ListItemIcon>
-                        <ListItemText primary="Live Chat" />
+                      <MenuItem onClick={() => { setUserMenu(null); handleChatClick(); }}>
+                        <ListItemIcon>
+                          <Badge 
+                            badgeContent={unreadChats} 
+                            color="error"
+                            sx={{
+                              '& .MuiBadge-badge': {
+                                fontSize: '0.6rem',
+                                height: 16,
+                                minWidth: 16,
+                              }
+                            }}
+                          >
+                            <Chat fontSize="small" sx={{ color: '#0891b2' }} />
+                          </Badge>
+                        </ListItemIcon>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <ListItemText primary="Live Chat" />
+                          {unreadChats > 0 && (
+                            <Chip 
+                              label={unreadChats} 
+                              size="small" 
+                              color="error" 
+                              sx={{ height: 18, fontSize: '0.6rem' }}
+                            />
+                          )}
+                        </Box>
                       </MenuItem>
                     </Box>
                   )}
@@ -282,23 +439,37 @@ const Navbar = () => {
             <IconButton onClick={() => setMobileDrawer(false)}><Close /></IconButton>
           </Stack>
           <Divider sx={{ mb: 2 }} />
-          <Typography variant="caption" color="text.secondary" fontWeight={600} textTransform="uppercase" mb={1} display="block">Menu</Typography>
-          <Button fullWidth onClick={() => { setMobileDrawer(false); navigate('/products'); }} sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 0.5 }}>All Products</Button>
-          <Button fullWidth onClick={() => { setMobileDrawer(false); navigate('/products?sort=price_asc'); }} sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 0.5, color: '#f59e0b' }}>Deals</Button>
-          <Button fullWidth onClick={() => { setMobileDrawer(false); navigate('/contact'); }} sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 0.5 }}>Contact</Button>
+          
           {isAdmin && (
             <>
-              <Divider sx={{ my: 2 }} />
               <Typography variant="caption" color="text.secondary" fontWeight={600} textTransform="uppercase" mb={1} display="block">Admin</Typography>
-              <Button fullWidth onClick={() => { setMobileDrawer(false); navigate('/admin'); }} sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 0.5 }}>Dashboard</Button>
-              <Button fullWidth onClick={() => { setMobileDrawer(false); navigate('/admin/chat'); }} sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 0.5 }}>
+              <Button fullWidth onClick={() => { setMobileDrawer(false); navigate('/admin'); }} sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 0.5 }}>
+                <Dashboard sx={{ mr: 1, fontSize: 20 }} /> Dashboard
+              </Button>
+              <Button fullWidth onClick={() => { setMobileDrawer(false); handleChatClick(); }} sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 0.5 }}>
                 <Badge badgeContent={unreadChats} color="error" sx={{ mr: 1 }}>
                   <Chat fontSize="small" />
                 </Badge>
                 Live Chat
+                {unreadChats > 0 && (
+                  <Chip label={unreadChats} size="small" color="error" sx={{ ml: 1, height: 18, fontSize: '0.6rem' }} />
+                )}
               </Button>
+              <Divider sx={{ my: 2 }} />
             </>
           )}
+
+          <Typography variant="caption" color="text.secondary" fontWeight={600} textTransform="uppercase" mb={1} display="block">Menu</Typography>
+          <Button fullWidth onClick={() => { setMobileDrawer(false); navigate('/products'); }} sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 0.5 }}>
+            <ShoppingBag sx={{ mr: 1, fontSize: 20 }} /> All Products
+          </Button>
+          <Button fullWidth onClick={() => { setMobileDrawer(false); navigate('/products?sort=price_asc'); }} sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 0.5, color: '#f59e0b' }}>
+            <LocalOffer sx={{ mr: 1, fontSize: 20 }} /> Deals
+          </Button>
+          <Button fullWidth onClick={() => { setMobileDrawer(false); navigate('/contact'); }} sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 0.5 }}>
+            <Mail sx={{ mr: 1, fontSize: 20 }} /> Contact
+          </Button>
+          
           <Divider sx={{ my: 2 }} />
           <Typography variant="caption" color="text.secondary" fontWeight={600} textTransform="uppercase" mb={1} display="block">Categories</Typography>
           {mainCategories.map(cat => (
@@ -316,6 +487,17 @@ const Navbar = () => {
           )}
         </Box>
       </Drawer>
+
+      {/* Add pulse animation style */}
+      <style>
+        {`
+          @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.15); }
+            100% { transform: scale(1); }
+          }
+        `}
+      </style>
     </>
   );
 };
