@@ -9,6 +9,7 @@ class ConnectionManager:
         self.admin_connections: List[WebSocket] = []
         # ✅ Track admin WebSocket connections by token for direct messaging
         self.admin_ws_map: Dict[str, WebSocket] = {}
+        self.typing_status: Dict[str, bool] = {}
     
     async def connect_admin(self, websocket: WebSocket, token: str):
         """Register admin connection"""
@@ -67,5 +68,31 @@ class ConnectionManager:
             except Exception:
                 del self.customer_connections[session_id]
         return False
-
+    async def send_typing_indicator(self, session_id: str, is_typing: bool, sender: str):
+        """Send typing indicator to the other party"""
+        # Store typing status
+        self.typing_status[session_id] = is_typing
+        
+        # Determine who to send to
+        if sender == "customer":
+            # Send to all admins
+            await self.notify_admins({
+                "type": "typing",
+                "session_id": session_id,
+                "is_typing": is_typing,
+                "sender": "customer",
+                "sender_name": "Customer"
+            })
+        elif sender == "admin":
+            # Send to specific customer
+            await self.reply_to_customer(session_id, {
+                "type": "typing",
+                "session_id": session_id,
+                "is_typing": is_typing,
+                "sender": "admin",
+                "sender_name": "Admin"
+            })
+    def get_typing_status(self, session_id: str) -> bool:
+        """Get typing status for a session"""
+        return self.typing_status.get(session_id, False)
 manager = ConnectionManager()

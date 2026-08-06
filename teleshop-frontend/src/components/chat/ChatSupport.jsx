@@ -48,6 +48,7 @@ const ChatSupport = () => {
   const [viewer, setViewer] = useState({ open: false, imageUrl: '', fileData: null, messageId: null });
   const [unreadCount, setUnreadCount] = useState(0);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isAdminTyping, setIsAdminTyping] = useState(false);
 
   const [sessionId, setSessionId] = useState(() => {
     if (user?.id) return `user_${user.id}`;
@@ -78,6 +79,7 @@ const ChatSupport = () => {
 
   const wsRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
   const token = localStorage.getItem('access_token');
 
   const customerName = getCustomerDisplayName(user);
@@ -119,6 +121,20 @@ const ChatSupport = () => {
       try {
         const d = JSON.parse(e.data);
         console.log('📩 WebSocket message:', d);
+
+        // Handle typing indicators
+        if (d.type === 'typing') {
+          if (d.sender === 'admin') {
+            setIsAdminTyping(d.is_typing);
+            if (d.is_typing) {
+              clearTimeout(typingTimeoutRef.current);
+              typingTimeoutRef.current = setTimeout(() => {
+                setIsAdminTyping(false);
+              }, 3000);
+            }
+          }
+          return;
+        }
 
         // ADMIN REPLY - Real time
         if (d.type === 'admin_reply') {
@@ -291,6 +307,10 @@ const ChatSupport = () => {
     if (!input.trim()) return;
     const txt = input; setInput('');
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    // Stop typing indicator
+    handleTyping(false);
+    
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ 
         message: txt, 
@@ -318,6 +338,17 @@ const ChatSupport = () => {
           reaction: null 
         }]);
       } catch (e) { console.error('Send failed:', e); }
+    }
+  };
+
+  const handleTyping = (isTyping) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'typing',
+        is_typing: isTyping,
+        session_id: sessionId,
+        sender_name: customerName
+      }));
     }
   };
 
@@ -477,13 +508,14 @@ const ChatSupport = () => {
 
   const handleDrawerOpen = () => {
     setIsDrawerOpen(true);
-    setUnreadCount(0); // Reset unread count when opening
+    setUnreadCount(0);
     setOpen(true);
   };
 
   const handleDrawerClose = () => {
     setIsDrawerOpen(false);
     setOpen(false);
+    setIsAdminTyping(false);
   };
 
   return (
@@ -829,29 +861,31 @@ const ChatSupport = () => {
                     )}
                   </Box>
 
-                  {/* Reaction */}
+                  {/* ✅ FIXED: Reaction Display - Same as AdminChat */}
                   {m.reaction && (
-                    <Box sx={{ 
-                      position: 'absolute', 
-                      bottom: -14, 
-                      right: m.from === 'user' ? 4 : 'auto', 
-                      left: m.from !== 'user' ? 4 : 'auto', 
-                      zIndex: 5 
-                    }}>
-                      <Chip 
-                        label={m.reaction} 
-                        size="small" 
-                        onClick={() => handleReaction(m.id, m.reaction)} 
-                        sx={{ 
-                          height: 22, 
-                          fontSize: { xs: '0.7rem', sm: '0.8rem' }, 
-                          bgcolor: 'white', 
-                          boxShadow: '0 1px 4px rgba(0,0,0,0.15)', 
-                          borderRadius: '12px', 
-                          border: '1px solid #e4e6eb', 
-                          cursor: 'pointer', 
-                          '&:hover': { bgcolor: '#f0f2f5' } 
-                        }} 
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        bottom: -14,
+                        right: m.from === 'user' ? 4 : 'auto',
+                        left: m.from !== 'user' ? 4 : 'auto',
+                        zIndex: 5
+                      }}
+                    >
+                      <Chip
+                        label={m.reaction}
+                        size="small"
+                        onClick={() => handleReaction(m.id, m.reaction)}
+                        sx={{
+                          height: 22,
+                          fontSize: '0.8rem',
+                          bgcolor: 'white',
+                          boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+                          borderRadius: '12px',
+                          border: '1px solid #e4e6eb',
+                          cursor: 'pointer',
+                          '&:hover': { bgcolor: '#f0f2f5' }
+                        }}
                       />
                     </Box>
                   )}
@@ -870,6 +904,24 @@ const ChatSupport = () => {
                 </Box>
               </Box>
             ))}
+            
+            {/* Typing Indicator */}
+            {isAdminTyping && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 1, mt: 1 }}>
+                <Avatar sx={{ width: 24, height: 24, bgcolor: '#42b72a' }}>
+                  <SupportAgent sx={{ fontSize: 14 }} />
+                </Avatar>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, bgcolor: '#e4e6eb', px: 2, py: 1, borderRadius: 2 }}>
+                  <Typography variant="caption" color="text.secondary">Admin is typing</Typography>
+                  <Box sx={{ display: 'flex', gap: 0.3 }}>
+                    <Box sx={{ width: 4, height: 4, bgcolor: '#65676b', borderRadius: '50%', animation: 'typingBounce 1.4s infinite', animationDelay: '0s' }} />
+                    <Box sx={{ width: 4, height: 4, bgcolor: '#65676b', borderRadius: '50%', animation: 'typingBounce 1.4s infinite', animationDelay: '0.2s' }} />
+                    <Box sx={{ width: 4, height: 4, bgcolor: '#65676b', borderRadius: '50%', animation: 'typingBounce 1.4s infinite', animationDelay: '0.4s' }} />
+                  </Box>
+                </Box>
+              </Box>
+            )}
+            
             <div ref={messagesEndRef} />
           </Stack>
 
@@ -930,7 +982,19 @@ const ChatSupport = () => {
                 size="small" 
                 placeholder="Aa..." 
                 value={input} 
-                onChange={e => setInput(e.target.value)} 
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  // Send typing indicator
+                  if (e.target.value.length > 0) {
+                    handleTyping(true);
+                    clearTimeout(typingTimeoutRef.current);
+                    typingTimeoutRef.current = setTimeout(() => {
+                      handleTyping(false);
+                    }, 2000);
+                  } else {
+                    handleTyping(false);
+                  }
+                }} 
                 onKeyPress={e => { if (e.key === 'Enter') { e.preventDefault(); send(); } }} 
                 variant="standard" 
                 multiline 
@@ -1002,6 +1066,16 @@ const ChatSupport = () => {
         messageId={viewer.messageId} 
         onClose={handleCloseViewer} 
       />
+
+      {/* CSS Animation */}
+      <style>
+        {`
+          @keyframes typingBounce {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-6px); }
+          }
+        `}
+      </style>
     </>
   );
 };

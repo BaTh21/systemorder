@@ -67,6 +67,9 @@ const AdminChat = () => {
   const [deleteSessionConfirm, setDeleteSessionConfirm] = useState(null);
   const [viewer, setViewer] = useState({ open: false, imageUrl: '', fileData: null, messageId: null });
   const [showProfileDetails, setShowProfileDetails] = useState(false);
+  
+  // ✅ Typing indicator state
+  const [isCustomerTyping, setIsCustomerTyping] = useState(false);
 
   const [messageMenu, setMessageMenu] = useState(null);
   const [selectedMessage, setSelectedMessage] = useState(null);
@@ -90,6 +93,7 @@ const AdminChat = () => {
   const reconnectTimerRef = useRef(null);
   const messagesEndRef = useRef(null);
   const activeChatRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
   const token = localStorage.getItem('access_token');
 
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -151,7 +155,9 @@ const AdminChat = () => {
     }
   }, [activeChat, customers]);
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => { 
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
+  }, [messages]);
 
   useEffect(() => {
     const unread = customers.reduce((sum, c) => sum + (c.unread || 0), 0);
@@ -191,6 +197,21 @@ const AdminChat = () => {
         try {
           const data = JSON.parse(event.data);
           console.log('📩 Admin WebSocket message:', data);
+
+          // ✅ Handle typing indicators
+          if (data.type === 'typing') {
+            if (data.sender === 'customer') {
+              setIsCustomerTyping(data.is_typing);
+              // Auto-hide typing after 3 seconds if not cleared
+              if (data.is_typing) {
+                clearTimeout(typingTimeoutRef.current);
+                typingTimeoutRef.current = setTimeout(() => {
+                  setIsCustomerTyping(false);
+                }, 3000);
+              }
+            }
+            return;
+          }
 
           if (data.type === 'customer_message') {
             const sid = data.session_id || data.from_user_id;
@@ -436,11 +457,26 @@ const AdminChat = () => {
     setLoading(false);
   };
 
+  // ✅ Handle typing indicator
+  const handleTyping = (isTyping) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN && activeChat) {
+      wsRef.current.send(JSON.stringify({
+        type: 'typing',
+        is_typing: isTyping,
+        session_id: activeChat,
+        admin_name: user?.full_name || 'Admin'
+      }));
+    }
+  };
+
   const handleSend = async () => {
     if (!input.trim() || !activeChat) return;
     const txt = input.trim();
     setInput('');
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    // ✅ Stop typing indicator
+    handleTyping(false);
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
@@ -494,6 +530,7 @@ const AdminChat = () => {
     setCustomerProfile(null);
     setActiveChat(sessionId);
     setShowProfileDetails(false);
+    setIsCustomerTyping(false);
 
     await api.put(`/chat/read/${sessionId}`).catch(e => { });
 
@@ -1685,6 +1722,35 @@ const AdminChat = () => {
                       )}
                     </Box>
                   ))}
+                  
+                  {/* ✅ Typing Indicator - Customer is typing */}
+                  {isCustomerTyping && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 1, mt: 1 }}>
+                      <Avatar
+                        sx={{
+                          width: 24,
+                          height: 24,
+                          bgcolor: getAvatarUrl() ? 'transparent' : '#1877f2'
+                        }}
+                        src={getAvatarUrl() || ''}
+                      >
+                        {!getAvatarUrl() && (
+                          <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'white' }}>
+                            {getInitials()}
+                          </Typography>
+                        )}
+                      </Avatar>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, bgcolor: '#e4e6eb', px: 2, py: 1, borderRadius: 2 }}>
+                        <Typography variant="caption" color="text.secondary">{getDisplayName()} is typing</Typography>
+                        <Box sx={{ display: 'flex', gap: 0.3 }}>
+                          <Box sx={{ width: 4, height: 4, bgcolor: '#65676b', borderRadius: '50%', animation: 'typingBounce 1.4s infinite', animationDelay: '0s' }} />
+                          <Box sx={{ width: 4, height: 4, bgcolor: '#65676b', borderRadius: '50%', animation: 'typingBounce 1.4s infinite', animationDelay: '0.2s' }} />
+                          <Box sx={{ width: 4, height: 4, bgcolor: '#65676b', borderRadius: '50%', animation: 'typingBounce 1.4s infinite', animationDelay: '0.4s' }} />
+                        </Box>
+                      </Box>
+                    </Box>
+                  )}
+                  
                   <div ref={messagesEndRef} />
                 </Stack>
               )}
@@ -1729,7 +1795,19 @@ const AdminChat = () => {
                     size="small"
                     placeholder="Aa"
                     value={input}
-                    onChange={e => setInput(e.target.value)}
+                    onChange={(e) => {
+                      setInput(e.target.value);
+                      // ✅ Send typing indicator
+                      if (e.target.value.length > 0) {
+                        handleTyping(true);
+                        clearTimeout(typingTimeoutRef.current);
+                        typingTimeoutRef.current = setTimeout(() => {
+                          handleTyping(false);
+                        }, 2000);
+                      } else {
+                        handleTyping(false);
+                      }
+                    }}
                     onKeyPress={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                     variant="standard"
                     InputProps={{
@@ -1900,6 +1978,16 @@ const AdminChat = () => {
         messageId={viewer.messageId}
         onClose={handleCloseViewer}
       />
+
+      {/* CSS Animation */}
+      <style>
+        {`
+          @keyframes typingBounce {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-6px); }
+          }
+        `}
+      </style>
     </Box>
   );
 };

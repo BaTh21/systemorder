@@ -45,6 +45,9 @@ async def ws_customer(websocket: WebSocket, token: str):
     
     print(f"👤 Customer session: {session_id} | Auth: {is_authenticated}")
     
+    # Store session_id for this connection
+    websocket.session_id = session_id
+    
     try:
         while True:
             data = await websocket.receive_text()
@@ -53,6 +56,7 @@ async def ws_customer(websocket: WebSocket, token: str):
             
             if msg_type == "connect":
                 session_id = msg.get("session_id", session_id)
+                websocket.session_id = session_id
                 manager.customer_connections[session_id] = websocket
                 print(f"✅ Customer connected: {session_id}")
                 print(f"📋 Active sessions: {list(manager.customer_connections.keys())}")
@@ -61,6 +65,12 @@ async def ws_customer(websocket: WebSocket, token: str):
             msg_session = session_id
             if msg_session not in manager.customer_connections:
                 manager.customer_connections[msg_session] = websocket
+            
+            # ✅ Handle typing indicators
+            if msg_type == "typing":
+                is_typing = msg.get("is_typing", False)
+                await manager.send_typing_indicator(msg_session, is_typing, "customer")
+                continue
             
             if msg_type in ["text", ""]:
                 try:
@@ -142,6 +152,8 @@ async def ws_customer(websocket: WebSocket, token: str):
         for sid, ws in list(manager.customer_connections.items()):
             if ws == websocket:
                 del manager.customer_connections[sid]
+                # Clear typing status
+                manager.typing_status.pop(sid, None)
     except Exception as e:
         print(f"❌ Customer WebSocket error: {e}")
         traceback.print_exc()
@@ -177,6 +189,12 @@ async def ws_admin(websocket: WebSocket, token: str):
             if session_id:
                 msg_type = msg.get("type", "text")
                 print(f"📤 Admin sending to session: {session_id}")
+                
+                # ✅ Handle typing indicators
+                if msg_type == "typing":
+                    is_typing = msg.get("is_typing", False)
+                    await manager.send_typing_indicator(session_id, is_typing, "admin")
+                    continue
                 
                 if msg_type in ["text", ""]:
                     try:
