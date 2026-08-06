@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Box, Fab, Drawer, Typography, TextField, Stack, IconButton,
-  Avatar, Paper, Chip, useMediaQuery, useTheme, Menu, MenuItem,
+  Avatar, Paper, Chip, useMediaQuery, useTheme, Menu, MenuItem, Badge,
 } from '@mui/material';
 import {
   Chat as ChatIcon, Close, Send,
@@ -47,6 +47,7 @@ const ChatSupport = () => {
   const [connected, setConnected] = useState(false);
   const [viewer, setViewer] = useState({ open: false, imageUrl: '', fileData: null, messageId: null });
   const [unreadCount, setUnreadCount] = useState(0);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   const [sessionId, setSessionId] = useState(() => {
     if (user?.id) return `user_${user.id}`;
@@ -119,7 +120,7 @@ const ChatSupport = () => {
         const d = JSON.parse(e.data);
         console.log('📩 WebSocket message:', d);
 
-        // ✅ ADMIN REPLY - Real time
+        // ADMIN REPLY - Real time
         if (d.type === 'admin_reply') {
           setMessages(prev => {
             if (d.message_id && prev.find(m => m.id === d.message_id)) return prev;
@@ -156,12 +157,16 @@ const ChatSupport = () => {
             return [...prev, messageData];
           });
           
-          // ✅ Auto-scroll to bottom
+          // Update unread count when drawer is closed
+          if (!isDrawerOpen) {
+            setUnreadCount(prev => prev + 1);
+          }
+          
           setTimeout(() => {
             messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
           }, 100);
         }
-        // ✅ MESSAGE SENT confirmation
+        // MESSAGE SENT confirmation
         else if (d.type === 'message_sent') {
           setMessages(prev => {
             if (d.message_id && prev.find(m => m.id === d.message_id)) return prev;
@@ -176,23 +181,23 @@ const ChatSupport = () => {
             }];
           });
         }
-        // ✅ MESSAGE EDITED
+        // MESSAGE EDITED
         else if (d.type === 'message_edited') {
           setMessages(prev => prev.map(m => 
             m.id === d.message_id ? { ...m, text: d.new_message, isEdited: true } : m
           ));
         }
-        // ✅ MESSAGE DELETED
+        // MESSAGE DELETED
         else if (d.type === 'message_deleted') {
           setMessages(prev => prev.filter(m => m.id !== d.message_id));
         }
-        // ✅ REACTION
+        // REACTION
         else if (d.type === 'message_reaction') {
           setMessages(prev => prev.map(m => 
             m.id === d.message_id ? { ...m, reaction: d.reaction || null } : m
           ));
         }
-        // ✅ SESSION DELETED
+        // SESSION DELETED
         else if (d.type === 'session_deleted') {
           setMessages(prev => [...prev, {
             id: 'system_' + Date.now(),
@@ -470,11 +475,22 @@ const ChatSupport = () => {
 
   const quick = ['📦 Track order', '💰 Payment help', '🔄 Returns', '📱 Product question'];
 
+  const handleDrawerOpen = () => {
+    setIsDrawerOpen(true);
+    setUnreadCount(0); // Reset unread count when opening
+    setOpen(true);
+  };
+
+  const handleDrawerClose = () => {
+    setIsDrawerOpen(false);
+    setOpen(false);
+  };
+
   return (
     <>
       <Fab 
         color="primary" 
-        onClick={() => setOpen(true)} 
+        onClick={handleDrawerOpen} 
         sx={{ 
           position: 'fixed', 
           bottom: { xs: 16, sm: 24 }, 
@@ -487,13 +503,31 @@ const ChatSupport = () => {
           '&:hover': { bgcolor: '#0066cc' } 
         }}
       >
-        <ChatIcon sx={{ fontSize: { xs: 22, sm: 26 } }} />
+        <Badge 
+          badgeContent={unreadCount} 
+          color="error" 
+          max={99}
+          sx={{ 
+            '& .MuiBadge-badge': { 
+              fontSize: { xs: '0.6rem', sm: '0.7rem' },
+              height: { xs: 18, sm: 20 },
+              minWidth: { xs: 18, sm: 20 },
+              right: -4,
+              top: -4,
+              backgroundColor: '#ef4444',
+              color: 'white',
+              fontWeight: 'bold'
+            } 
+          }}
+        >
+          <ChatIcon sx={{ fontSize: { xs: 22, sm: 26 } }} />
+        </Badge>
       </Fab>
 
       <Drawer 
         anchor="right" 
         open={open} 
-        onClose={() => setOpen(false)} 
+        onClose={handleDrawerClose} 
         PaperProps={{ 
           sx: { 
             width: { xs: '100%', sm: 420 }, 
@@ -521,7 +555,7 @@ const ChatSupport = () => {
                 </Stack>
               </Box>
             </Stack>
-            <IconButton onClick={() => setOpen(false)} sx={{ color: 'white' }}>
+            <IconButton onClick={handleDrawerClose} sx={{ color: 'white' }}>
               <Close />
             </IconButton>
           </Stack>

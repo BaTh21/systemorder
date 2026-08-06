@@ -58,9 +58,10 @@ class ConnectionManager:
             print(f"❌ Failed to send to admin: {e}")
     
     async def reply_to_customer(self, session_id: str, message: dict):
-        """Send reply to specific customer"""
+        """Send reply to specific customer with real-time notification"""
         if session_id in self.customer_connections:
             try:
+                message["is_admin_reply"] = True
                 await self.customer_connections[session_id].send_text(json.dumps(message))
                 return True
             except Exception:

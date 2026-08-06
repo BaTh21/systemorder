@@ -118,13 +118,12 @@ const AdminChat = () => {
       console.log('📋 Loading profile for customer:', customer);
 
       if (customer) {
-        // ✅ Build profile from customer data first
         const profileData = {
           name: customer.displayName || 'Customer',
           email: customer.sender_email || null,
           phone: customer.phone || null,
           is_registered: !!customer.user_id,
-          avatar_url: customer.avatar_url || null, // ✅ Include avatar_url
+          avatar_url: customer.avatar_url || null,
           user_id: customer.user_id || null,
           is_active: customer.is_active || false,
           created_at: customer.created_at || null,
@@ -195,6 +194,19 @@ const AdminChat = () => {
 
           if (data.type === 'customer_message') {
             const sid = data.session_id || data.from_user_id;
+            
+            // Update total unread count
+            if (activeChatRef.current !== sid) {
+              setTotalUnread(prev => prev + 1);
+            }
+            
+            // Update session-specific unread count
+            if (activeChatRef.current !== sid) {
+              setCustomers(prev => prev.map(c => 
+                c.session_id === sid ? { ...c, unread: (c.unread || 0) + 1 } : c
+              ));
+            }
+            
             if (activeChatRef.current === sid && data.message_id) {
               setMessages(prev => {
                 if (prev.find(m => m.id === data.message_id)) return prev;
@@ -348,7 +360,7 @@ const AdminChat = () => {
           user_id: c.user_id || null,
           is_active: c.is_active || false,
           created_at: c.created_at || null,
-          avatar_url: c.avatar_url || null, // ✅ Pass through avatar_url
+          avatar_url: c.avatar_url || null,
           phone: c.phone || null,
           sender_email: c.sender_email || null,
         };
@@ -374,7 +386,7 @@ const AdminChat = () => {
           email: res.data.email || fallbackProfile.email,
           phone: res.data.phone || fallbackProfile.phone,
           is_registered: res.data.is_registered || false,
-          avatar_url: res.data.avatar_url || fallbackProfile.avatar_url || null, // ✅ Include avatar
+          avatar_url: res.data.avatar_url || fallbackProfile.avatar_url || null,
           user_id: userId,
           is_active: res.data.is_active || false,
           created_at: res.data.created_at || null,
@@ -488,6 +500,12 @@ const AdminChat = () => {
     setCustomers(prev => prev.map(c =>
       c.session_id === sessionId ? { ...c, unread: 0 } : c
     ));
+    
+    // Recalculate total unread
+    const remainingUnread = customers.reduce((sum, c) => 
+      c.session_id === sessionId ? sum : sum + (c.unread || 0), 0
+    );
+    setTotalUnread(remainingUnread);
   };
 
   const handleReaction = async (msgId, emoji) => {
@@ -757,17 +775,14 @@ const AdminChat = () => {
     });
   };
 
-  // ✅ Helper function to get the best available avatar URL
   const getAvatarUrl = () => {
     return customerProfile?.avatar_url || activeCustomer?.avatar_url || null;
   };
 
-  // ✅ Helper function to get the best available display name
   const getDisplayName = () => {
     return customerProfile?.name || activeCustomer?.displayName || 'Customer';
   };
 
-  // ✅ Helper function to get initials for avatar fallback
   const getInitials = () => {
     const name = getDisplayName();
     return name.charAt(0).toUpperCase();
@@ -873,12 +888,20 @@ const AdminChat = () => {
               >
                 <ListItemAvatar sx={{ minWidth: { xs: 44, sm: 56 } }}>
                   <Badge
-                    badgeContent={c.unread}
+                    badgeContent={c.unread || 0}
                     color="error"
                     overlap="circular"
-                    sx={{ '& .MuiBadge-badge': { fontSize: '0.6rem', height: 16, minWidth: 16 } }}
+                    sx={{ 
+                      '& .MuiBadge-badge': { 
+                        fontSize: '0.6rem', 
+                        height: 18, 
+                        minWidth: 18,
+                        backgroundColor: '#ef4444',
+                        color: 'white',
+                        fontWeight: 'bold'
+                      } 
+                    }}
                   >
-                    {/* ✅ Sidebar avatar with proper fallback */}
                     <Avatar
                       sx={{
                         width: { xs: 40, sm: 48 },
@@ -949,7 +972,6 @@ const AdminChat = () => {
                   <ArrowBack sx={{ fontSize: { xs: 20, sm: 22 } }} />
                 </IconButton>
 
-                {/* ✅ Header Avatar - Fixed */}
                 <Badge
                   overlap="circular"
                   anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
@@ -1029,6 +1051,45 @@ const AdminChat = () => {
                   </Stack>
                 </Box>
 
+                {/* Total Unread Badge */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Badge 
+                    badgeContent={totalUnread} 
+                    color="error"
+                    max={99}
+                    sx={{
+                      '& .MuiBadge-badge': {
+                        backgroundColor: '#ef4444',
+                        color: 'white',
+                        fontWeight: 'bold',
+                        fontSize: '0.65rem',
+                        height: 20,
+                        minWidth: 20,
+                      }
+                    }}
+                  >
+                    <ChatIcon sx={{ 
+                      fontSize: 22, 
+                      color: totalUnread > 0 ? '#1877f2' : '#94a3b8',
+                      transition: 'color 0.3s ease'
+                    }} />
+                  </Badge>
+                  
+                  {totalUnread > 0 && (
+                    <Typography 
+                      variant="caption" 
+                      sx={{ 
+                        color: '#ef4444', 
+                        fontWeight: 700,
+                        fontSize: '0.7rem',
+                        display: { xs: 'none', sm: 'block' }
+                      }}
+                    >
+                      New
+                    </Typography>
+                  )}
+                </Box>
+
                 <Tooltip title="View Profile Details">
                   <IconButton 
                     size="small"
@@ -1057,7 +1118,6 @@ const AdminChat = () => {
                 >
                   <Stack spacing={1.5}>
                     <Stack direction="row" spacing={2} alignItems="center">
-                      {/* ✅ Profile panel avatar - Fixed */}
                       <Avatar
                         sx={{
                           width: 64,
@@ -1206,7 +1266,6 @@ const AdminChat = () => {
                 <Box textAlign="center" py={6}><CircularProgress size={28} sx={{ color: '#1877f2' }} /></Box>
               ) : messages.length === 0 ? (
                 <Box textAlign="center" pt={4}>
-                  {/* ✅ Empty state avatar - Fixed */}
                   <Avatar
                     sx={{
                       width: 80,
@@ -1311,7 +1370,6 @@ const AdminChat = () => {
                       }}
                     >
                       {m.from === 'customer' && (
-                        /* ✅ Message avatar - Fixed */
                         <Avatar
                           sx={{
                             width: 28,
