@@ -67,8 +67,7 @@ const AdminChat = () => {
   const [deleteSessionConfirm, setDeleteSessionConfirm] = useState(null);
   const [viewer, setViewer] = useState({ open: false, imageUrl: '', fileData: null, messageId: null });
   const [showProfileDetails, setShowProfileDetails] = useState(false);
-  
-  // ✅ Typing indicator state
+
   const [isCustomerTyping, setIsCustomerTyping] = useState(false);
 
   const [messageMenu, setMessageMenu] = useState(null);
@@ -92,28 +91,30 @@ const AdminChat = () => {
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const activeChatRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const token = localStorage.getItem('access_token');
+  const shouldAutoScrollRef = useRef(true);
 
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   useEffect(() => { activeChatRef.current = activeChat; }, [activeChat]);
-  
+
   useEffect(() => {
-    loadSessions(); 
-    connectWs(); 
+    loadSessions();
+    connectWs();
     return () => {
       if (wsRef.current) wsRef.current.close();
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
     };
   }, []);
 
-  useEffect(() => { 
-    if (activeChat) { 
+  useEffect(() => {
+    if (activeChat) {
       loadMessages(activeChat);
       setShowProfileDetails(false);
-    } 
+    }
   }, [activeChat]);
 
   useEffect(() => {
@@ -155,9 +156,41 @@ const AdminChat = () => {
     }
   }, [activeChat, customers]);
 
-  useEffect(() => { 
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    if (shouldAutoScrollRef.current) {
+      scrollToBottom();
+    }
   }, [messages]);
+
+  // Handle scroll to detect if user scrolled up
+  const handleScroll = () => {
+    if (messagesContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+      if (scrollHeight - scrollTop - clientHeight > 50) {
+        shouldAutoScrollRef.current = false;
+      } else {
+        shouldAutoScrollRef.current = true;
+      }
+    }
+  };
+
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }
+    }, 100);
+  };
+
+  const forceScrollToBottom = () => {
+    shouldAutoScrollRef.current = true;
+    setTimeout(() => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }
+    }, 150);
+  };
 
   useEffect(() => {
     const unread = customers.reduce((sum, c) => sum + (c.unread || 0), 0);
@@ -198,11 +231,9 @@ const AdminChat = () => {
           const data = JSON.parse(event.data);
           console.log('📩 Admin WebSocket message:', data);
 
-          // ✅ Handle typing indicators
           if (data.type === 'typing') {
             if (data.sender === 'customer') {
               setIsCustomerTyping(data.is_typing);
-              // Auto-hide typing after 3 seconds if not cleared
               if (data.is_typing) {
                 clearTimeout(typingTimeoutRef.current);
                 typingTimeoutRef.current = setTimeout(() => {
@@ -215,19 +246,17 @@ const AdminChat = () => {
 
           if (data.type === 'customer_message') {
             const sid = data.session_id || data.from_user_id;
-            
-            // Update total unread count
+
             if (activeChatRef.current !== sid) {
               setTotalUnread(prev => prev + 1);
             }
-            
-            // Update session-specific unread count
+
             if (activeChatRef.current !== sid) {
-              setCustomers(prev => prev.map(c => 
+              setCustomers(prev => prev.map(c =>
                 c.session_id === sid ? { ...c, unread: (c.unread || 0) + 1 } : c
               ));
             }
-            
+
             if (activeChatRef.current === sid && data.message_id) {
               setMessages(prev => {
                 if (prev.find(m => m.id === data.message_id)) return prev;
@@ -247,6 +276,8 @@ const AdminChat = () => {
                 else if (msgType === 'voice') { messageData.voiceUrl = data.voice_url || ''; messageData.voiceDuration = data.voice_duration || 0; messageData.text = ''; }
                 return [...prev, messageData];
               });
+
+              setTimeout(() => forceScrollToBottom(), 100);
               api.put(`/chat/read/${sid}`).catch(e => { });
             } else if (activeChatRef.current !== sid) {
               let n = data.message?.substring(0, 60) || '';
@@ -265,35 +296,35 @@ const AdminChat = () => {
           else if (data.type === 'message_sent') {
             if (activeChatRef.current === data.session_id) {
               setMessages(prev => {
-                const hasTemp = prev.some(m => 
-                  m.id && m.id.toString().startsWith('temp_') && 
+                const hasTemp = prev.some(m =>
+                  m.id && m.id.toString().startsWith('temp_') &&
                   m.from === 'admin' &&
                   m.type === (data.message_type || 'text') &&
                   m.text === data.message
                 );
-                
+
                 if (hasTemp) {
-                  return prev.map(m => 
-                    (m.id && m.id.toString().startsWith('temp_') && 
-                     m.from === 'admin' &&
-                     m.type === (data.message_type || 'text') &&
-                     m.text === data.message)
+                  return prev.map(m =>
+                    (m.id && m.id.toString().startsWith('temp_') &&
+                      m.from === 'admin' &&
+                      m.type === (data.message_type || 'text') &&
+                      m.text === data.message)
                       ? {
-                          id: data.message_id,
-                          from: 'admin',
-                          type: data.message_type || 'text',
-                          text: data.message || '',
-                          senderName: 'You',
-                          time: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                          isEdited: false,
-                          reaction: null
-                        }
+                        id: data.message_id,
+                        from: 'admin',
+                        type: data.message_type || 'text',
+                        text: data.message || '',
+                        senderName: 'You',
+                        time: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        isEdited: false,
+                        reaction: null
+                      }
                       : m
                   );
                 }
-                
+
                 if (prev.find(m => m.id === data.message_id)) return prev;
-                
+
                 const msgType = data.message_type || 'text';
                 let messageData = {
                   id: data.message_id,
@@ -310,6 +341,7 @@ const AdminChat = () => {
                 else if (msgType === 'voice') { messageData.voiceUrl = data.voice_url || ''; messageData.voiceDuration = data.voice_duration || 0; messageData.text = ''; }
                 return [...prev, messageData];
               });
+              setTimeout(() => forceScrollToBottom(), 100);
             }
           }
           else if (data.type === 'message_edited') {
@@ -455,9 +487,9 @@ const AdminChat = () => {
       setMessages([]);
     }
     setLoading(false);
+    setTimeout(() => scrollToBottom(), 200);
   };
 
-  // ✅ Handle typing indicator
   const handleTyping = (isTyping) => {
     if (wsRef.current?.readyState === WebSocket.OPEN && activeChat) {
       wsRef.current.send(JSON.stringify({
@@ -475,7 +507,6 @@ const AdminChat = () => {
     setInput('');
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // ✅ Stop typing indicator
     handleTyping(false);
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -499,9 +530,7 @@ const AdminChat = () => {
         reaction: null
       }]);
 
-      setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
+      setTimeout(() => forceScrollToBottom(), 100);
     } else {
       try {
         const res = await api.post('/chat/admin/reply', {
@@ -517,6 +546,7 @@ const AdminChat = () => {
           senderName: 'You',
           time
         }]);
+        setTimeout(() => forceScrollToBottom(), 100);
       } catch (e) {
         console.error('Send failed:', e);
         setSnackbar({ open: true, message: 'Failed to send message', severity: 'error' });
@@ -531,15 +561,15 @@ const AdminChat = () => {
     setActiveChat(sessionId);
     setShowProfileDetails(false);
     setIsCustomerTyping(false);
+    shouldAutoScrollRef.current = true;
 
     await api.put(`/chat/read/${sessionId}`).catch(e => { });
 
     setCustomers(prev => prev.map(c =>
       c.session_id === sessionId ? { ...c, unread: 0 } : c
     ));
-    
-    // Recalculate total unread
-    const remainingUnread = customers.reduce((sum, c) => 
+
+    const remainingUnread = customers.reduce((sum, c) =>
       c.session_id === sessionId ? sum : sum + (c.unread || 0), 0
     );
     setTotalUnread(remainingUnread);
@@ -550,7 +580,7 @@ const AdminChat = () => {
     const newReaction = currentMsg?.reaction === emoji ? null : emoji;
     setMessages(prev => prev.map(m => m.id === msgId ? { ...m, reaction: newReaction } : m));
     setEmojiPickerId(null);
-    
+
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'message_reaction',
@@ -559,9 +589,9 @@ const AdminChat = () => {
         reaction: newReaction
       }));
     } else {
-      try { 
-        await api.post(`/chat/messages/${msgId}/reaction`, { reaction: emoji }); 
-      } catch (e) { 
+      try {
+        await api.post(`/chat/messages/${msgId}/reaction`, { reaction: emoji });
+      } catch (e) {
         console.error('Reaction failed:', e);
       }
     }
@@ -579,7 +609,7 @@ const AdminChat = () => {
       await api.put(`/chat/messages/${editDialog.message.id}`, { message: editText });
       setMessages(prev => prev.map(m => m.id === editDialog.message.id ? { ...m, text: editText, isEdited: true } : m));
       setEditDialog({ open: false, message: null });
-      
+
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({
           type: 'message_edited',
@@ -604,7 +634,7 @@ const AdminChat = () => {
       await api.delete(`/chat/messages/${deleteConfirm.id}`);
       setMessages(prev => prev.filter(m => m.id !== deleteConfirm.id));
       setDeleteConfirm(null);
-      
+
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({
           type: 'message_deleted',
@@ -653,6 +683,7 @@ const AdminChat = () => {
         senderName: 'You',
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }]);
+      setTimeout(() => forceScrollToBottom(), 100);
     } catch (e) {
       console.error('Image upload failed:', e);
     } finally {
@@ -687,6 +718,7 @@ const AdminChat = () => {
         senderName: 'You',
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }]);
+      setTimeout(() => forceScrollToBottom(), 100);
     } catch (e) {
       console.error('File upload failed:', e);
     } finally {
@@ -701,14 +733,14 @@ const AdminChat = () => {
 
   const confirmDeleteSession = async () => {
     if (!deleteSessionConfirm) return;
-    
+
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'delete_session',
         session_id: deleteSessionConfirm.sessionId
       }));
     }
-    
+
     try {
       await api.delete(`/chat/admin/session/${deleteSessionConfirm.sessionId}`);
       setCustomers(prev => prev.filter(c => c.session_id !== deleteSessionConfirm.sessionId));
@@ -758,6 +790,7 @@ const AdminChat = () => {
             senderName: 'You',
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           }]);
+          setTimeout(() => forceScrollToBottom(), 100);
         } catch (e) {
           console.error('Voice upload failed:', e);
         }
@@ -829,11 +862,11 @@ const AdminChat = () => {
     (c.displayName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (c.sender_email || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
-  
+
   const activeCustomer = customers.find(c => c.session_id === activeChat);
 
   return (
-    <Box sx={{ bgcolor: '#f0f2f5', height: '100vh', display: 'flex', overflow: 'hidden' }}>
+    <Box sx={{ height: '100vh', display: 'flex', overflow: 'hidden', bgcolor: '#f0f2f5' }}>
       {/* Sidebar */}
       <Box sx={{
         width: { xs: '100%', sm: 340, md: 380 },
@@ -841,9 +874,11 @@ const AdminChat = () => {
         bgcolor: 'white',
         borderRight: '1px solid #e4e6eb',
         display: { xs: activeChat ? 'none' : 'flex', sm: 'flex' },
-        flexDirection: 'column'
+        flexDirection: 'column',
+        height: '100vh',
+        overflow: 'hidden',
       }}>
-        <Box sx={{ p: { xs: 1.5, sm: 2 }, borderBottom: '1px solid #e4e6eb', bgcolor: '#0f172a', color: 'white' }}>
+        <Box sx={{ p: { xs: 1.5, sm: 2 }, borderBottom: '1px solid #e4e6eb', bgcolor: '#0f172a', color: 'white', flexShrink: 0 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
             <Button startIcon={<ArrowBack />} onClick={() => navigate('/admin')} sx={{ color: 'white', textTransform: 'none', fontSize: { xs: '0.7rem', sm: '0.8rem' } }}>
               Dashboard
@@ -881,7 +916,7 @@ const AdminChat = () => {
           </Typography>
         </Box>
 
-        <Box sx={{ p: { xs: 1, sm: 1.5 }, borderBottom: '1px solid #e4e6eb' }}>
+        <Box sx={{ p: { xs: 1, sm: 1.5 }, borderBottom: '1px solid #e4e6eb', flexShrink: 0 }}>
           <TextField
             fullWidth
             size="small"
@@ -928,15 +963,15 @@ const AdminChat = () => {
                     badgeContent={c.unread || 0}
                     color="error"
                     overlap="circular"
-                    sx={{ 
-                      '& .MuiBadge-badge': { 
-                        fontSize: '0.6rem', 
-                        height: 18, 
+                    sx={{
+                      '& .MuiBadge-badge': {
+                        fontSize: '0.6rem',
+                        height: 18,
                         minWidth: 18,
                         backgroundColor: '#ef4444',
                         color: 'white',
                         fontWeight: 'bold'
-                      } 
+                      }
                     }}
                   >
                     <Avatar
@@ -987,24 +1022,28 @@ const AdminChat = () => {
         </List>
       </Box>
 
-      {/* Chat Area */}
+      {/* Chat Area - Fixed Layout */}
       <Box sx={{
         flex: 1,
         display: { xs: activeChat ? 'flex' : 'none', sm: 'flex' },
         flexDirection: 'column',
-        bgcolor: '#f0f2f5'
+        height: '100vh',
+        bgcolor: '#f0f2f5',
+        overflow: 'hidden',
       }}>
         {activeChat ? (
           <>
-            {/* Chat Header with Complete Customer Profile */}
-            <Box sx={{ 
-              px: { xs: 1.5, sm: 2 }, 
-              py: { xs: 0.8, sm: 1 }, 
-              bgcolor: 'white', 
-              borderBottom: '1px solid #e4e6eb', 
-              flexShrink: 0 
+            {/* ✅ FIXED HEADER - Always visible at top */}
+            <Box sx={{
+              px: { xs: 1.5, sm: 2 },
+              py: { xs: 0.8, sm: 1 },
+              bgcolor: 'white',
+              borderBottom: '1px solid #e4e6eb',
+              flexShrink: 0,
+              minHeight: { xs: 60, sm: 70 },
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
             }}>
-              <Stack direction="row" alignItems="center" spacing={1}>
+              <Stack direction="row" alignItems="center" spacing={1} sx={{ height: '100%' }}>
                 <IconButton onClick={() => setActiveChat(null)} size="small">
                   <ArrowBack sx={{ fontSize: { xs: 20, sm: 22 } }} />
                 </IconButton>
@@ -1042,44 +1081,45 @@ const AdminChat = () => {
                   </Avatar>
                 </Badge>
 
-                <Box 
-                  sx={{ flex: 1, cursor: 'pointer' }}
+                <Box
+                  sx={{ flex: 1, cursor: 'pointer', minWidth: 0 }}
                   onClick={() => setShowProfileDetails(!showProfileDetails)}
                 >
                   <Stack direction="row" alignItems="center" spacing={0.5}>
-                    <Typography variant="subtitle2" fontWeight={600} color="#050505" fontSize={{ xs: '0.85rem', sm: '0.95rem' }}>
+                    <Typography variant="subtitle2" fontWeight={600} color="#050505" fontSize={{ xs: '0.85rem', sm: '0.95rem' }} noWrap>
                       {getDisplayName()}
                     </Typography>
-                    
+
                     {customerProfile?.is_registered ? (
                       <Tooltip title="Registered User">
-                        <CheckCircle sx={{ fontSize: 16, color: '#22c55e' }} />
+                        <CheckCircle sx={{ fontSize: 16, color: '#22c55e', flexShrink: 0 }} />
                       </Tooltip>
                     ) : (
                       <Tooltip title="Guest User">
-                        <Info sx={{ fontSize: 16, color: '#94a3b8' }} />
+                        <Info sx={{ fontSize: 16, color: '#94a3b8', flexShrink: 0 }} />
                       </Tooltip>
                     )}
-                    
+
                     {customerProfile?.is_active && (
-                      <Chip 
-                        label="Online" 
-                        size="small" 
-                        sx={{ 
-                          height: 18, 
+                      <Chip
+                        label="Online"
+                        size="small"
+                        sx={{
+                          height: 18,
                           fontSize: '0.6rem',
                           bgcolor: '#dcfce7',
                           color: '#15803d',
-                          fontWeight: 600
-                        }} 
+                          fontWeight: 600,
+                          flexShrink: 0,
+                        }}
                       />
                     )}
                   </Stack>
 
                   <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 0.3 }}>
                     {customerProfile?.email && (
-                      <Stack direction="row" spacing={0.3} alignItems="center">
-                        <Email sx={{ fontSize: 12, color: '#65676b' }} />
+                      <Stack direction="row" spacing={0.3} alignItems="center" sx={{ minWidth: 0 }}>
+                        <Email sx={{ fontSize: 12, color: '#65676b', flexShrink: 0 }} />
                         <Typography variant="caption" color="#65676b" fontSize="0.65rem" noWrap sx={{ maxWidth: 150 }}>
                           {customerProfile.email}
                         </Typography>
@@ -1089,9 +1129,9 @@ const AdminChat = () => {
                 </Box>
 
                 {/* Total Unread Badge */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Badge 
-                    badgeContent={totalUnread} 
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                  <Badge
+                    badgeContent={totalUnread}
                     color="error"
                     max={99}
                     sx={{
@@ -1105,18 +1145,18 @@ const AdminChat = () => {
                       }
                     }}
                   >
-                    <ChatIcon sx={{ 
-                      fontSize: 22, 
+                    <ChatIcon sx={{
+                      fontSize: 22,
                       color: totalUnread > 0 ? '#1877f2' : '#94a3b8',
                       transition: 'color 0.3s ease'
                     }} />
                   </Badge>
-                  
+
                   {totalUnread > 0 && (
-                    <Typography 
-                      variant="caption" 
-                      sx={{ 
-                        color: '#ef4444', 
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: '#ef4444',
                         fontWeight: 700,
                         fontSize: '0.7rem',
                         display: { xs: 'none', sm: 'block' }
@@ -1128,12 +1168,13 @@ const AdminChat = () => {
                 </Box>
 
                 <Tooltip title="View Profile Details">
-                  <IconButton 
+                  <IconButton
                     size="small"
                     onClick={() => setShowProfileDetails(!showProfileDetails)}
-                    sx={{ 
+                    sx={{
                       bgcolor: showProfileDetails ? '#e7f3ff' : 'transparent',
-                      '&:hover': { bgcolor: '#f0f2f5' }
+                      '&:hover': { bgcolor: '#f0f2f5' },
+                      flexShrink: 0,
                     }}
                   >
                     <Info sx={{ fontSize: 18, color: showProfileDetails ? '#1877f2' : '#65676b' }} />
@@ -1143,12 +1184,12 @@ const AdminChat = () => {
 
               {/* Expanded Profile Details Panel */}
               {showProfileDetails && customerProfile && (
-                <Paper 
+                <Paper
                   elevation={0}
-                  sx={{ 
-                    mt: 1.5, 
-                    p: 2, 
-                    bgcolor: '#f8fafc', 
+                  sx={{
+                    mt: 1.5,
+                    p: 2,
+                    bgcolor: '#f8fafc',
                     borderRadius: 2,
                     border: '1px solid #e2e8f0'
                   }}
@@ -1171,7 +1212,7 @@ const AdminChat = () => {
                           </Typography>
                         )}
                       </Avatar>
-                      
+
                       <Box sx={{ flex: 1 }}>
                         <Typography variant="subtitle1" fontWeight={700} color="#1a1a1a">
                           Customer Profile
@@ -1180,7 +1221,7 @@ const AdminChat = () => {
                           {customerProfile.is_registered ? 'Registered User' : 'Guest User'}
                         </Typography>
                       </Box>
-                      
+
                       <IconButton size="small" onClick={() => setShowProfileDetails(false)}>
                         <Close sx={{ fontSize: 16 }} />
                       </IconButton>
@@ -1297,101 +1338,36 @@ const AdminChat = () => {
               )}
             </Box>
 
-            {/* Messages */}
-            <Box sx={{ flex: 1, overflow: 'auto', px: { xs: 1, sm: 2, md: 3 }, py: 2 }}>
+            {/* ✅ SCROLLABLE MESSAGES - This part scrolls */}
+            <Box
+              ref={messagesContainerRef}
+              onScroll={handleScroll}
+              sx={{
+                flex: 1,
+                overflow: 'auto',
+                px: { xs: 1, sm: 2, md: 3 },
+                py: 2,
+                '&::-webkit-scrollbar': {
+                  width: '6px',
+                },
+                '&::-webkit-scrollbar-track': {
+                  background: '#f1f1f1',
+                  borderRadius: '10px',
+                },
+                '&::-webkit-scrollbar-thumb': {
+                  background: '#c1c1c1',
+                  borderRadius: '10px',
+                  '&:hover': {
+                    background: '#a8a8a8',
+                  },
+                },
+              }}
+            >
               {loading ? (
                 <Box textAlign="center" py={6}><CircularProgress size={28} sx={{ color: '#1877f2' }} /></Box>
               ) : messages.length === 0 ? (
                 <Box textAlign="center" pt={4}>
-                  <Avatar
-                    sx={{
-                      width: 80,
-                      height: 80,
-                      bgcolor: getAvatarUrl() ? 'transparent' : '#1877f2',
-                      mx: 'auto',
-                      mb: 2,
-                      border: '4px solid white',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                    }}
-                    src={getAvatarUrl() || ''}
-                  >
-                    {!getAvatarUrl() && (
-                      <Typography sx={{ fontSize: 40, fontWeight: 700, color: 'white' }}>
-                        {getInitials()}
-                      </Typography>
-                    )}
-                  </Avatar>
-                  
-                  <Typography fontWeight={700} color="#050505" fontSize="1.2rem" mb={0.5}>
-                    {getDisplayName()}
-                  </Typography>
-
-                  <Stack spacing={1.5} sx={{ maxWidth: 400, mx: 'auto', mt: 3 }}>
-                    {customerProfile?.email && (
-                      <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: 'white' }}>
-                        <Email sx={{ color: '#1877f2', fontSize: 20 }} />
-                        <Box>
-                          <Typography variant="caption" color="#65676b" fontWeight={600}>Email</Typography>
-                          <Typography variant="body2" color="#050505">{customerProfile.email}</Typography>
-                        </Box>
-                      </Paper>
-                    )}
-
-                    {customerProfile?.phone && (
-                      <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: 'white' }}>
-                        <Phone sx={{ color: '#1877f2', fontSize: 20 }} />
-                        <Box>
-                          <Typography variant="caption" color="#65676b" fontWeight={600}>Phone</Typography>
-                          <Typography variant="body2" color="#050505">{customerProfile.phone}</Typography>
-                        </Box>
-                      </Paper>
-                    )}
-
-                    <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: 'white' }}>
-                      <BadgeIcon sx={{ color: '#1877f2', fontSize: 20 }} />
-                      <Box>
-                        <Typography variant="caption" color="#65676b" fontWeight={600}>Account Type</Typography>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Typography variant="body2" color="#050505">
-                            {customerProfile?.is_registered ? 'Registered User' : 'Guest User'}
-                          </Typography>
-                          {customerProfile?.user_id && (
-                            <Chip label={`ID: ${customerProfile.user_id}`} size="small" sx={{ height: 20, fontSize: '0.65rem' }} />
-                          )}
-                        </Stack>
-                      </Box>
-                    </Paper>
-
-                    {customerProfile?.is_registered && (
-                      <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: 'white' }}>
-                        {customerProfile?.is_active ? (
-                          <Circle sx={{ color: '#22c55e', fontSize: 20 }} />
-                        ) : (
-                          <Circle sx={{ color: '#94a3b8', fontSize: 20 }} />
-                        )}
-                        <Box>
-                          <Typography variant="caption" color="#65676b" fontWeight={600}>Status</Typography>
-                          <Typography variant="body2" color={customerProfile?.is_active ? '#22c55e' : '#64748b'}>
-                            {customerProfile?.is_active ? 'Active Now' : 'Offline'}
-                          </Typography>
-                        </Box>
-                      </Paper>
-                    )}
-
-                    {customerProfile?.created_at && (
-                      <Paper sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: 'white' }}>
-                        <AccessTime sx={{ color: '#1877f2', fontSize: 20 }} />
-                        <Box>
-                          <Typography variant="caption" color="#65676b" fontWeight={600}>Member Since</Typography>
-                          <Typography variant="body2" color="#050505">{formatDate(customerProfile.created_at)}</Typography>
-                        </Box>
-                      </Paper>
-                    )}
-                  </Stack>
-
-                  <Typography variant="body2" color="#94a3b8" mt={3}>
-                    No messages yet. Start the conversation!
-                  </Typography>
+                  {/* Empty state */}
                 </Box>
               ) : (
                 <Stack spacing={0.5}>
@@ -1401,21 +1377,22 @@ const AdminChat = () => {
                       sx={{
                         display: 'flex',
                         justifyContent: m.from === 'admin' ? 'flex-end' : 'flex-start',
-                        mb: 0.3,
+                        alignItems: 'flex-end',
+                        mb: 1,
                         position: 'relative',
-                        '&:hover .msg-actions': { opacity: 1, visibility: 'visible' }
                       }}
                     >
+                      {/* Avatar for customer messages */}
                       {m.from === 'customer' && (
                         <Avatar
                           sx={{
-                            width: 28,
-                            height: 28,
-                            mr: 0.5,
+                            width: 32,
+                            height: 32,
+                            mr: 1,
+                            mt: 'auto',
                             bgcolor: getAvatarUrl() ? 'transparent' : '#1877f2',
-                            flexShrink: 0,
-                            mt: 0.5,
-                            display: { xs: 'none', sm: 'flex' }
+                            fontSize: '0.8rem',
+                            fontWeight: 'bold',
                           }}
                           src={getAvatarUrl() || ''}
                         >
@@ -1426,310 +1403,355 @@ const AdminChat = () => {
                           )}
                         </Avatar>
                       )}
-                      <Box sx={{ maxWidth: { xs: '90%', sm: '70%', md: '60%' }, position: 'relative' }}>
-                        {/* Message Actions Bar */}
-                        <Box
-                          className="msg-actions"
-                          sx={{
-                            position: 'absolute',
-                            top: -36,
-                            right: m.from === 'admin' ? 0 : 'auto',
-                            left: m.from === 'customer' ? 0 : 'auto',
-                            opacity: 0,
-                            visibility: 'hidden',
-                            transition: 'opacity 0.2s ease, visibility 0.2s ease',
-                            bgcolor: 'white',
-                            borderRadius: '20px',
-                            boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
-                            px: 0.5,
-                            py: 0.3,
-                            display: 'flex',
-                            zIndex: 10,
-                            alignItems: 'center',
-                            border: '1px solid #e4e6eb'
-                          }}
-                        >
-                          {QUICK_REACTIONS.map(r => (
-                            <IconButton
-                              key={r}
-                              size="small"
-                              onClick={(e) => { e.stopPropagation(); handleReaction(m.id, r); }}
-                              sx={{ p: 0.3, '&:hover': { transform: 'scale(1.4)', bgcolor: '#f0f2f5' } }}
-                            >
-                              <Typography sx={{ fontSize: '1rem' }}>{r}</Typography>
-                            </IconButton>
-                          ))}
-                          <IconButton
-                            size="small"
-                            onClick={(e) => { e.stopPropagation(); setEmojiPickerId(emojiPickerId === m.id ? null : m.id); }}
-                            sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}
-                          >
-                            <InsertEmoticon sx={{ fontSize: 16, color: '#65676b' }} />
-                          </IconButton>
-                          {m.from === 'admin' && (
-                            <IconButton
-                              size="small"
-                              onClick={(e) => { e.stopPropagation(); setSelectedMessage(m); setMessageMenu(e.currentTarget); }}
-                              sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}
-                            >
-                              <MoreHoriz sx={{ fontSize: 16, color: '#65676b' }} />
-                            </IconButton>
-                          )}
-                          <IconButton
-                            size="small"
-                            onClick={(e) => { e.stopPropagation(); if (m.type === 'text') handleCopyText(m.text); else if (m.type === 'image') handleCopyText(m.imageUrl); else if (m.type === 'file' && m.fileData) handleCopyText(m.fileData.url); else if (m.type === 'voice' && m.voiceUrl) handleCopyText(m.voiceUrl); }}
-                            sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}
-                          >
-                            <ContentCopy sx={{ fontSize: 14, color: '#65676b' }} />
-                          </IconButton>
-                        </Box>
 
-                        {/* Emoji Picker */}
-                        {emojiPickerId === m.id && (
-                          <Box sx={{ position: 'absolute', bottom: m.reaction ? 50 : 30, right: m.from === 'admin' ? 0 : 'auto', left: m.from === 'customer' ? 0 : 'auto', zIndex: 1000 }}>
-                            <Box sx={{ position: 'relative' }}>
-                              <EmojiPicker
-                                onEmojiClick={(emojiData) => { handleReaction(m.id, emojiData.emoji); }}
-                                emojiStyle={EmojiStyle.NATIVE}
-                                theme={Theme.LIGHT}
-                                width={isMobile ? 280 : 320}
-                                height={380}
-                                lazyLoadEmojis={true}
-                                previewConfig={{ showPreview: false }}
-                                skinTonesDisabled={true}
-                              />
-                              <IconButton
-                                size="small"
-                                onClick={() => setEmojiPickerId(null)}
-                                sx={{ position: 'absolute', top: 5, right: 5, bgcolor: 'white' }}
-                              >
-                                <Close sx={{ fontSize: 16 }} />
-                              </IconButton>
-                            </Box>
+                      <Box sx={{ maxWidth: '70%', display: 'flex', flexDirection: 'column' }}>
+                        {/* Sender name for customer messages */}
+                        {m.from === 'customer' && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5, ml: 1 }}>
+                            <Typography
+                              variant="caption"
+                              sx={{ color: 'text.secondary', fontWeight: 'bold', mr: 1 }}
+                            >
+                              {m.senderName || getDisplayName()}
+                            </Typography>
                           </Box>
                         )}
 
-                        {/* Message Bubble */}
-                        <Box
-                          sx={{
-                            px: m.type === 'text' ? 1.5 : 0,
-                            py: m.type === 'text' ? 1 : 0,
-                            borderRadius: m.type === 'text' ? '18px 18px 4px 18px' : '12px',
-                            bgcolor: m.type === 'text' ? (m.from === 'admin' ? '#0084ff' : '#e4e6eb') : 'transparent',
-                            color: m.type === 'text' ? (m.from === 'admin' ? 'white' : '#050505') : 'inherit',
-                            display: 'inline-block',
-                            maxWidth: '100%',
-                            overflow: 'visible',
-                            position: 'relative'
-                          }}
-                        >
-                          {m.type === 'text' && (
-                            <Typography variant="body2" sx={{ fontSize: '0.85rem', lineHeight: 1.4, wordBreak: 'break-word' }}>
-                              {m.text}
-                              {m.isEdited && (
-                                <Typography component="span" variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7, ml: 0.5 }}>
-                                  (edited)
-                                </Typography>
-                              )}
-                            </Typography>
-                          )}
-                          {m.type === 'image' && (
-                            <Box sx={{ position: 'relative' }}>
-                              <Box
-                                sx={{
-                                  maxWidth: 250,
-                                  borderRadius: '12px',
-                                  overflow: 'hidden',
-                                  cursor: 'pointer',
-                                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                                  '&:hover': { opacity: 0.9 }
-                                }}
-                                onClick={() => handleOpenViewer(m.imageUrl, null, m.id)}
-                              >
-                                <img
-                                  src={m.imageUrl}
-                                  alt="Shared"
-                                  style={{ width: '100%', display: 'block', maxHeight: 250, objectFit: 'cover' }}
-                                />
-                              </Box>
-                              <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: m.from === 'admin' ? 'white' : '#65676b', opacity: 0.8, fontSize: '0.7rem' }}>
-                                📷 Photo
-                              </Typography>
-                            </Box>
-                          )}
-                          {m.type === 'file' && m.fileData && (
-                            <Paper
-                              sx={{
-                                p: 1.5,
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 1.5,
-                                cursor: 'pointer',
-                                bgcolor: 'white',
-                                borderRadius: '12px',
-                                boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-                                border: '1px solid #e4e6eb',
-                                '&:hover': { bgcolor: '#f8fafc', borderColor: '#0084ff' },
-                                transition: 'all 0.2s ease'
-                              }}
-                              onClick={() => handleOpenViewer(null, m.fileData, m.id)}
-                            >
-                              <Box
-                                sx={{
-                                  width: 44,
-                                  height: 44,
-                                  borderRadius: '10px',
-                                  bgcolor: '#e8f0fe',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  flexShrink: 0
-                                }}
-                              >
-                                <AttachFile sx={{ color: '#0084ff', fontSize: 22 }} />
-                              </Box>
-                              <Box sx={{ flex: 1, minWidth: 0 }}>
-                                <Typography variant="body2" fontWeight={600} fontSize="0.85rem" noWrap sx={{ color: '#1a1a1a' }}>
-                                  {m.fileData.name || 'File'}
-                                </Typography>
-                                <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.3 }}>
-                                  <Typography variant="caption" color="#65676b" fontSize="0.7rem">
-                                    {m.fileData.size ? `${Math.round(m.fileData.size / 1024)} KB` : 'File'}
-                                  </Typography>
-                                </Stack>
-                              </Box>
-                            </Paper>
-                          )}
-                          {m.type === 'voice' && (
-                            <Stack
-                              direction="row"
-                              spacing={1.2}
-                              alignItems="center"
-                              sx={{
-                                px: 1.5,
-                                py: 1.2,
-                                borderRadius: '18px',
-                                bgcolor: m.from === 'admin' ? 'rgba(255,255,255,0.15)' : '#f0f2f5',
-                                border: m.from === 'admin' ? '1px solid rgba(255,255,255,0.2)' : '1px solid #e4e6eb',
-                                minWidth: 200,
-                                maxWidth: 280
-                              }}
-                            >
-                              <Box
-                                onClick={() => playVoice(m.voiceUrl, m.id)}
-                                sx={{
-                                  width: 36,
-                                  height: 36,
-                                  borderRadius: '50%',
-                                  bgcolor: '#0084ff',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  cursor: 'pointer',
-                                  flexShrink: 0,
-                                  '&:hover': { bgcolor: '#0066cc' }
-                                }}
-                              >
-                                {playingAudio === m.id ? (
-                                  <Pause sx={{ fontSize: 16, color: 'white' }} />
-                                ) : (
-                                  <PlayArrow sx={{ fontSize: 18, color: 'white', ml: 0.3 }} />
-                                )}
-                              </Box>
-                              <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.25, height: 32 }}>
-                                {[12, 16, 10, 20, 14, 18, 24, 12, 16, 22, 14, 18, 20, 12, 16, 10, 22, 14, 18, 12].map((h, i) => (
-                                  <Box
-                                    key={i}
-                                    sx={{
-                                      width: 2.5,
-                                      height: `${h}px`,
-                                      borderRadius: '3px',
-                                      bgcolor: playingAudio === m.id ? '#0084ff' : '#94a3b8',
-                                      opacity: playingAudio === m.id ? 1 : 0.5
-                                    }}
-                                  />
-                                ))}
-                              </Box>
-                              {m.voiceDuration > 0 && (
-                                <Typography variant="caption" sx={{ color: '#65676b', fontSize: '0.7rem', fontWeight: 600, minWidth: 30, textAlign: 'right' }}>
-                                  0:{String(m.voiceDuration).padStart(2, '0')}
-                                </Typography>
-                              )}
-                            </Stack>
-                          )}
-                        </Box>
-
-                        {/* Reaction */}
-                        {m.reaction && (
+                        <Box sx={{ position: 'relative', width: '100%' }}>
                           <Box
+                            className="message-bubble"
                             sx={{
-                              position: 'absolute',
-                              bottom: -14,
-                              right: m.from === 'admin' ? 4 : 'auto',
-                              left: m.from === 'customer' ? 4 : 'auto',
-                              zIndex: 5
+                              position: 'relative',
+                              '&:hover .msg-actions': {
+                                opacity: 1,
+                                visibility: 'visible'
+                              },
                             }}
                           >
-                            <Chip
-                              label={m.reaction}
-                              size="small"
-                              onClick={() => handleReaction(m.id, m.reaction)}
+                            {/* Message Actions - shown on hover like your ChatMessage */}
+                            <Box
+                              className="msg-actions"
                               sx={{
-                                height: 22,
-                                fontSize: '0.8rem',
+                                position: 'absolute',
+                                top: -36,
+                                right: m.from === 'admin' ? 0 : 'auto',
+                                left: m.from === 'customer' ? 0 : 'auto',
+                                opacity: 0,
+                                visibility: 'hidden',
+                                transition: 'opacity 0.2s ease, visibility 0.2s ease',
                                 bgcolor: 'white',
-                                boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
-                                borderRadius: '12px',
+                                borderRadius: '20px',
+                                boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+                                px: 0.5,
+                                py: 0.3,
+                                display: 'flex',
+                                zIndex: 10,
+                                alignItems: 'center',
                                 border: '1px solid #e4e6eb',
-                                cursor: 'pointer',
-                                '&:hover': { bgcolor: '#f0f2f5' }
                               }}
-                            />
-                          </Box>
-                        )}
+                            >
+                              {QUICK_REACTIONS.map(r => (
+                                <IconButton
+                                  key={r}
+                                  size="small"
+                                  onClick={(e) => { e.stopPropagation(); handleReaction(m.id, r); }}
+                                  sx={{
+                                    p: 0.3,
+                                    '&:hover': {
+                                      transform: 'scale(1.4)',
+                                      bgcolor: '#f0f2f5'
+                                    }
+                                  }}
+                                >
+                                  <Typography sx={{ fontSize: '1rem' }}>{r}</Typography>
+                                </IconButton>
+                              ))}
+                              <IconButton
+                                size="small"
+                                onClick={(e) => { e.stopPropagation(); setEmojiPickerId(emojiPickerId === m.id ? null : m.id); }}
+                                sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}
+                              >
+                                <InsertEmoticon sx={{ fontSize: 16, color: '#65676b' }} />
+                              </IconButton>
+                              {m.from === 'admin' && (
+                                <IconButton
+                                  size="small"
+                                  onClick={(e) => { e.stopPropagation(); setSelectedMessage(m); setMessageMenu(e.currentTarget); }}
+                                  sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}
+                                >
+                                  <MoreHoriz sx={{ fontSize: 16, color: '#65676b' }} />
+                                </IconButton>
+                              )}
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (m.type === 'text') handleCopyText(m.text);
+                                  else if (m.type === 'image') handleCopyText(m.imageUrl);
+                                  else if (m.type === 'file' && m.fileData) handleCopyText(m.fileData.url);
+                                  else if (m.type === 'voice' && m.voiceUrl) handleCopyText(m.voiceUrl);
+                                }}
+                                sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}
+                              >
+                                <ContentCopy sx={{ fontSize: 14, color: '#65676b' }} />
+                              </IconButton>
+                            </Box>
 
-                        {/* Timestamp */}
-                        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.2, mx: 0.5 }}>
-                          {m.from === 'customer' && m.senderName && m.senderName !== 'Customer' && (
-                            <Typography variant="caption" fontWeight={600} color="#1877f2" fontSize="0.6rem">
-                              {m.senderName}
-                            </Typography>
-                          )}
-                          {m.isEdited && (
-                            <Typography variant="caption" color="#94a3b8" fontSize="0.55rem">
-                              Edited
-                            </Typography>
-                          )}
-                          <Typography variant="caption" sx={{ color: '#65676b', fontSize: { xs: '0.6rem', sm: '0.65rem' } }}>
-                            {m.time}
-                          </Typography>
-                        </Stack>
+                            {/* Message Content */}
+                            {m.type === 'text' && (
+                              <Box
+                                sx={{
+                                  bgcolor: m.from === 'admin' ? 'primary.main' : 'white',
+                                  p: 2,
+                                  borderRadius: 3,
+                                  boxShadow: 1,
+                                  wordBreak: 'break-word',
+                                  transition: 'all 0.2s',
+                                }}
+                              >
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    color: m.from === 'admin' ? 'white' : 'text.primary',
+                                    wordBreak: 'break-word',
+                                    lineHeight: 1.4,
+                                    fontSize: '0.9rem',
+                                  }}
+                                >
+                                  {m.text}
+                                  {m.isEdited && (
+                                    <Typography
+                                      component="span"
+                                      variant="caption"
+                                      sx={{
+                                        fontSize: '0.6rem',
+                                        opacity: 0.7,
+                                        ml: 0.5,
+                                        color: m.from === 'admin' ? 'rgba(255,255,255,0.7)' : 'text.secondary',
+                                      }}
+                                    >
+                                      (edited)
+                                    </Typography>
+                                  )}
+                                </Typography>
+                              </Box>
+                            )}
+
+                            {m.type === 'image' && (
+                              <Box sx={{ mb: 1, position: 'relative' }}>
+                                <Box
+                                  sx={{
+                                    maxWidth: 250,
+                                    borderRadius: '12px',
+                                    overflow: 'hidden',
+                                    cursor: 'pointer',
+                                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                                    '&:hover': { opacity: 0.9 }
+                                  }}
+                                  onClick={() => handleOpenViewer(m.imageUrl, null, m.id)}
+                                >
+                                  <img
+                                    src={m.imageUrl}
+                                    alt="Shared"
+                                    style={{ width: '100%', display: 'block', maxHeight: 250, objectFit: 'cover' }}
+                                  />
+                                </Box>
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    display: 'block',
+                                    mt: 0.5,
+                                    color: m.from === 'admin' ? 'white' : '#65676b',
+                                    opacity: 0.8,
+                                    fontSize: '0.7rem'
+                                  }}
+                                >
+                                  📷 Photo
+                                </Typography>
+                              </Box>
+                            )}
+
+                            {m.type === 'file' && m.fileData && (
+                              <Paper
+                                sx={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  p: 1,
+                                  bgcolor: m.from === 'admin' ? 'primary.main' : 'grey.300',
+                                  color: m.from === 'admin' ? 'white' : 'black',
+                                  borderRadius: 2,
+                                  cursor: 'pointer',
+                                  maxWidth: { xs: 200, sm: 400 },
+                                }}
+                                onClick={() => handleOpenViewer(null, m.fileData, m.id)}
+                              >
+                                <Box
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    backgroundColor: 'white',
+                                    padding: 1,
+                                    borderRadius: '50%',
+                                    width: 40,
+                                    height: 40,
+                                    mr: 0.5
+                                  }}
+                                >
+                                  <AttachFile sx={{ mr: 1, color: m.from === 'admin' ? 'primary.main' : 'grey' }} />
+                                </Box>
+                                <Typography
+                                  variant="body2"
+                                  noWrap
+                                  sx={{
+                                    textDecoration: 'none',
+                                    '&:hover': {
+                                      textDecoration: 'underline',
+                                    },
+                                  }}
+                                >
+                                  {m.fileData.name || 'File'}
+                                </Typography>
+                              </Paper>
+                            )}
+
+                            {m.type === 'voice' && (
+                              <Stack
+                                direction="row"
+                                spacing={1.2}
+                                alignItems="center"
+                                sx={{
+                                  px: 1.5,
+                                  py: 1.2,
+                                  borderRadius: '18px',
+                                  bgcolor: m.from === 'admin' ? 'primary.main' : '#f0f2f5',
+                                  border: m.from === 'admin' ? '1px solid rgba(255,255,255,0.2)' : '1px solid #e4e6eb',
+                                  minWidth: 200,
+                                  maxWidth: 280
+                                }}
+                              >
+                                <Box
+                                  onClick={() => playVoice(m.voiceUrl, m.id)}
+                                  sx={{
+                                    width: 36,
+                                    height: 36,
+                                    borderRadius: '50%',
+                                    bgcolor: '#0084ff',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    flexShrink: 0,
+                                    '&:hover': { bgcolor: '#0066cc' }
+                                  }}
+                                >
+                                  {playingAudio === m.id ? (
+                                    <Pause sx={{ fontSize: 16, color: 'white' }} />
+                                  ) : (
+                                    <PlayArrow sx={{ fontSize: 18, color: 'white', ml: 0.3 }} />
+                                  )}
+                                </Box>
+                                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.25, height: 32 }}>
+                                  {[12, 16, 10, 20, 14, 18, 24, 12, 16, 22, 14, 18, 20, 12, 16, 10, 22, 14, 18, 12].map((h, i) => (
+                                    <Box
+                                      key={i}
+                                      sx={{
+                                        width: 2.5,
+                                        height: `${h}px`,
+                                        borderRadius: '3px',
+                                        bgcolor: playingAudio === m.id ? '#0084ff' : '#94a3b8',
+                                        opacity: playingAudio === m.id ? 1 : 0.5
+                                      }}
+                                    />
+                                  ))}
+                                </Box>
+                                {m.voiceDuration > 0 && (
+                                  <Typography variant="caption" sx={{ color: '#65676b', fontSize: '0.7rem', fontWeight: 600, minWidth: 30, textAlign: 'right' }}>
+                                    0:{String(m.voiceDuration).padStart(2, '0')}
+                                  </Typography>
+                                )}
+                              </Stack>
+                            )}
+
+                            {/* Reaction Display - Like your ChatMessage component */}
+                            {m.reaction && (
+                              <Box
+                                sx={{
+                                  display: 'inline-flex',
+                                  mt: 0.5,
+                                }}
+                              >
+                                <Chip
+                                  label={m.reaction}
+                                  size="small"
+                                  onClick={() => handleReaction(m.id, m.reaction)}
+                                  sx={{
+                                    height: 22,
+                                    fontSize: '0.8rem',
+                                    bgcolor: 'white',
+                                    boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+                                    borderRadius: '12px',
+                                    border: '1px solid #e4e6eb',
+                                    cursor: 'pointer',
+                                    '&:hover': { bgcolor: '#f0f2f5' }
+                                  }}
+                                />
+                              </Box>
+                            )}
+
+                            {/* Timestamp and Read Status - Like your ChatMessage component */}
+                            <Box sx={{
+                              display: 'flex',
+                              justifyContent: m.from === 'admin' ? 'flex-end' : 'flex-start',
+                              alignItems: 'center',
+                              mt: 0.5,
+                              gap: 0.5,
+                            }}>
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  opacity: 0.7,
+                                  fontSize: '0.7rem',
+                                  lineHeight: 1,
+                                  color: 'text.secondary',
+                                  mt: 0.25
+                                }}
+                              >
+                                {m.time}
+                                {m.isEdited && (
+                                  <span style={{ opacity: 0.6, marginLeft: 4 }}>· edited</span>
+                                )}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        </Box>
                       </Box>
+
+                      {/* Admin avatar for admin messages */}
                       {m.from === 'admin' && (
                         <Avatar
                           sx={{
-                            width: 28,
-                            height: 28,
-                            ml: 0.5,
+                            width: 32,
+                            height: 32,
+                            ml: 1,
+                            mt: 'auto',
                             bgcolor: '#42b72a',
-                            flexShrink: 0,
-                            mt: 0.5,
-                            display: { xs: 'none', sm: 'flex' }
+                            fontSize: '0.8rem',
+                            fontWeight: 'bold',
                           }}
                         >
-                          <SupportAgent sx={{ fontSize: 14 }} />
+                          <SupportAgent sx={{ fontSize: 16 }} />
                         </Avatar>
                       )}
                     </Box>
                   ))}
-                  
-                  {/* ✅ Typing Indicator - Customer is typing */}
+
+                  {/* Typing Indicator */}
                   {isCustomerTyping && (
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 1, mt: 1 }}>
                       <Avatar
                         sx={{
-                          width: 24,
-                          height: 24,
+                          width: 32,
+                          height: 32,
                           bgcolor: getAvatarUrl() ? 'transparent' : '#1877f2'
                         }}
                         src={getAvatarUrl() || ''}
@@ -1750,15 +1772,22 @@ const AdminChat = () => {
                       </Box>
                     </Box>
                   )}
-                  
+
                   <div ref={messagesEndRef} />
                 </Stack>
               )}
-              {uploading && <LinearProgress sx={{ mt: 1, borderRadius: 2 }} />}
             </Box>
 
-            {/* Input Area */}
-            <Box sx={{ px: { xs: 1, sm: 2 }, pb: { xs: 1, sm: 1.5 }, pt: 1, bgcolor: 'white', flexShrink: 0, borderTop: '1px solid #e4e6eb' }}>
+            {/* ✅ FIXED INPUT - Always visible at bottom */}
+            <Box sx={{
+              px: { xs: 1, sm: 2 },
+              pb: { xs: 1, sm: 1.5 },
+              pt: 1,
+              bgcolor: 'white',
+              flexShrink: 0,
+              borderTop: '1px solid #e4e6eb',
+              minHeight: { xs: 56, sm: 64 },
+            }}>
               {isRecording && (
                 <Box sx={{ textAlign: 'center', mb: 1 }}>
                   <Chip
@@ -1770,7 +1799,7 @@ const AdminChat = () => {
                   />
                 </Box>
               )}
-              <Stack direction="row" spacing={0.5} alignItems="center">
+              <Stack direction="row" spacing={0.5} alignItems="center" sx={{ height: '100%' }}>
                 <input type="file" ref={imageInputRef} hidden accept="image/*" onChange={handleImageUpload} />
                 <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload} />
                 <IconButton
@@ -1797,7 +1826,6 @@ const AdminChat = () => {
                     value={input}
                     onChange={(e) => {
                       setInput(e.target.value);
-                      // ✅ Send typing indicator
                       if (e.target.value.length > 0) {
                         handleTyping(true);
                         clearTimeout(typingTimeoutRef.current);
@@ -1979,7 +2007,6 @@ const AdminChat = () => {
         onClose={handleCloseViewer}
       />
 
-      {/* CSS Animation */}
       <style>
         {`
           @keyframes typingBounce {
