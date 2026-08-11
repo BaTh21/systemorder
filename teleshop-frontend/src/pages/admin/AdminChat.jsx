@@ -67,6 +67,12 @@ const AdminChat = () => {
   const [deleteSessionConfirm, setDeleteSessionConfirm] = useState(null);
   const [viewer, setViewer] = useState({ open: false, imageUrl: '', fileData: null, messageId: null });
   const [showProfileDetails, setShowProfileDetails] = useState(false);
+  const [adminProfile, setAdminProfile] = useState({
+    full_name: '',
+    username: '',
+    avatar_url: null,
+    role: 'Admin'
+  });
 
   const [isCustomerTyping, setIsCustomerTyping] = useState(false);
 
@@ -98,6 +104,18 @@ const AdminChat = () => {
   const shouldAutoScrollRef = useRef(true);
 
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+
+  // Load admin profile from user data
+  useEffect(() => {
+    if (user) {
+      setAdminProfile({
+        full_name: user.full_name || 'Admin',
+        email: user.email || '',
+        avatar_url: user.avatar_url || null,
+        role: user.role?.value || 'Admin'
+      });
+    }
+  }, [user]);
 
   useEffect(() => { activeChatRef.current = activeChat; }, [activeChat]);
 
@@ -423,8 +441,44 @@ const AdminChat = () => {
     }
   };
 
+  const fetchAdminProfile = async () => {
+    try {
+      const response = await api.get('/chat/admin-profile');
+      if (response.data) {
+        console.log('👤 Admin profile fetched:', response.data);
+        setAdminProfile({
+          full_name: response.data.full_name || user?.full_name || 'Admin',
+          email: response.data.email || user?.email || '',
+          avatar_url: response.data.avatar_url || user?.avatar_url || null,
+          role: response.data.role || 'Admin'
+        });
+      }
+    } catch (error) {
+      console.log('Could not fetch admin profile, using user data');
+      if (user) {
+        setAdminProfile({
+          full_name: user.full_name || 'Admin',
+          email: user.email || '',
+          avatar_url: user.avatar_url || null,
+          role: user.role?.value || 'Admin'
+        });
+      }
+    }
+  };
+
+  // Update the useEffect to fetch from API
+  useEffect(() => {
+    fetchAdminProfile();
+  }, [user]);
+
+  // Also fetch when component mounts
+  useEffect(() => {
+    fetchAdminProfile();
+  }, []);
+
   const loadCustomerProfileByUserId = async (userId, fallbackProfile) => {
     if (!userId) {
+      console.log('👤 No user ID, using fallback profile:', fallbackProfile);
       setCustomerProfile(fallbackProfile);
       return;
     }
@@ -433,26 +487,29 @@ const AdminChat = () => {
       const res = await api.get(`/chat/customer-profile-by-user/${userId}`);
       console.log('📋 Customer profile from API:', res.data);
 
-      if (res.data && !res.data.is_admin) {
-        const profile = {
-          name: res.data.name || fallbackProfile.name,
-          email: res.data.email || fallbackProfile.email,
-          phone: res.data.phone || fallbackProfile.phone,
-          is_registered: res.data.is_registered || false,
-          avatar_url: res.data.avatar_url || fallbackProfile.avatar_url || null,
-          user_id: userId,
-          is_active: res.data.is_active || false,
-          created_at: res.data.created_at || null,
-          telegram_chat_id: res.data.telegram_chat_id || null,
-        };
-        console.log('✅ Setting customer profile:', profile);
-        setCustomerProfile(profile);
-      } else {
+      // Check if response is admin - if so, use fallback
+      if (res.data && res.data.is_admin) {
         console.log('⚠️ API returned admin data, using fallback');
         setCustomerProfile(fallbackProfile);
+        return;
       }
+
+      const profile = {
+        name: res.data.name || fallbackProfile.name,
+        email: res.data.email || fallbackProfile.email,
+        phone: res.data.phone || fallbackProfile.phone,
+        is_registered: res.data.is_registered || false,
+        avatar_url: res.data.avatar_url || fallbackProfile.avatar_url || null,
+        user_id: userId,
+        is_active: res.data.is_active || false,
+        created_at: res.data.created_at || null,
+        telegram_chat_id: res.data.telegram_chat_id || null,
+      };
+      console.log('✅ Setting customer profile:', profile);
+      setCustomerProfile(profile);
     } catch (e) {
       console.error('❌ Failed to load customer profile:', e);
+      // Use fallback on error
       setCustomerProfile(fallbackProfile);
     }
   };
@@ -573,6 +630,8 @@ const AdminChat = () => {
       c.session_id === sessionId ? sum : sum + (c.unread || 0), 0
     );
     setTotalUnread(remainingUnread);
+
+    await loadMessages(sessionId);
   };
 
   const handleReaction = async (msgId, emoji) => {
@@ -883,7 +942,31 @@ const AdminChat = () => {
             <Button startIcon={<ArrowBack />} onClick={() => navigate('/admin')} sx={{ color: 'white', textTransform: 'none', fontSize: { xs: '0.7rem', sm: '0.8rem' } }}>
               Dashboard
             </Button>
-            <Stack direction="row" spacing={0.5} alignItems="center">
+            <Stack direction="row" spacing={1} alignItems="center">
+              {/* Admin Avatar in Header */}
+              <Tooltip title="Edit Profile">
+                <Avatar
+                  src={adminProfile.avatar_url}
+                  onClick={() => navigate('/admin/profile')}
+                  sx={{
+                    width: 32,
+                    height: 32,
+                    bgcolor: adminProfile.avatar_url ? 'transparent' : '#42b72a',
+                    border: '2px solid white',
+                    fontSize: '0.9rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    '&:hover': { opacity: 0.8 }
+                  }}
+                >
+                  {!adminProfile.avatar_url && (
+                    adminProfile.full_name
+                      ? adminProfile.full_name.charAt(0).toUpperCase()
+                      : <SupportAgent sx={{ fontSize: 18 }} />
+                  )}
+                </Avatar>
+              </Tooltip>
+
               <Chip
                 icon={<Circle sx={{ fontSize: 6, color: connected ? '#22c55e' : '#ef4444' }} />}
                 label={connected ? 'Online' : 'Offline'}
@@ -902,9 +985,14 @@ const AdminChat = () => {
             </Stack>
           </Stack>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography variant="h6" fontWeight={700} fontSize={{ xs: '1rem', sm: '1.1rem', md: '1.25rem' }}>
-              Messages
-            </Typography>
+            <Box>
+              <Typography variant="h6" fontWeight={700} fontSize={{ xs: '1rem', sm: '1.1rem', md: '1.25rem' }}>
+                Messages
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.7, display: 'block' }}>
+                {adminProfile.full_name} • {adminProfile.role}
+              </Typography>
+            </Box>
             {totalUnread > 0 && (
               <Badge badgeContent={totalUnread} color="error" max={99}>
                 <ChatIcon sx={{ color: 'white', fontSize: { xs: 20, sm: 24 } }} />
@@ -1022,7 +1110,7 @@ const AdminChat = () => {
         </List>
       </Box>
 
-      {/* Chat Area - Fixed Layout */}
+      {/* Chat Area */}
       <Box sx={{
         flex: 1,
         display: { xs: activeChat ? 'flex' : 'none', sm: 'flex' },
@@ -1033,7 +1121,7 @@ const AdminChat = () => {
       }}>
         {activeChat ? (
           <>
-            {/* ✅ FIXED HEADER - Always visible at top */}
+            {/* Header */}
             <Box sx={{
               px: { xs: 1.5, sm: 2 },
               py: { xs: 0.8, sm: 1 },
@@ -1128,7 +1216,6 @@ const AdminChat = () => {
                   </Stack>
                 </Box>
 
-                {/* Total Unread Badge */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
                   <Badge
                     badgeContent={totalUnread}
@@ -1151,194 +1238,12 @@ const AdminChat = () => {
                       transition: 'color 0.3s ease'
                     }} />
                   </Badge>
-
-                  {totalUnread > 0 && (
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        color: '#ef4444',
-                        fontWeight: 700,
-                        fontSize: '0.7rem',
-                        display: { xs: 'none', sm: 'block' }
-                      }}
-                    >
-                      New
-                    </Typography>
-                  )}
                 </Box>
-
-                <Tooltip title="View Profile Details">
-                  <IconButton
-                    size="small"
-                    onClick={() => setShowProfileDetails(!showProfileDetails)}
-                    sx={{
-                      bgcolor: showProfileDetails ? '#e7f3ff' : 'transparent',
-                      '&:hover': { bgcolor: '#f0f2f5' },
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Info sx={{ fontSize: 18, color: showProfileDetails ? '#1877f2' : '#65676b' }} />
-                  </IconButton>
-                </Tooltip>
               </Stack>
-
-              {/* Expanded Profile Details Panel */}
-              {showProfileDetails && customerProfile && (
-                <Paper
-                  elevation={0}
-                  sx={{
-                    mt: 1.5,
-                    p: 2,
-                    bgcolor: '#f8fafc',
-                    borderRadius: 2,
-                    border: '1px solid #e2e8f0'
-                  }}
-                >
-                  <Stack spacing={1.5}>
-                    <Stack direction="row" spacing={2} alignItems="center">
-                      <Avatar
-                        sx={{
-                          width: 64,
-                          height: 64,
-                          bgcolor: getAvatarUrl() ? 'transparent' : '#1877f2',
-                          border: '3px solid white',
-                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-                        }}
-                        src={getAvatarUrl() || ''}
-                      >
-                        {!getAvatarUrl() && (
-                          <Typography sx={{ fontSize: 28, fontWeight: 700, color: 'white' }}>
-                            {getInitials()}
-                          </Typography>
-                        )}
-                      </Avatar>
-
-                      <Box sx={{ flex: 1 }}>
-                        <Typography variant="subtitle1" fontWeight={700} color="#1a1a1a">
-                          Customer Profile
-                        </Typography>
-                        <Typography variant="body2" color="#65676b">
-                          {customerProfile.is_registered ? 'Registered User' : 'Guest User'}
-                        </Typography>
-                      </Box>
-
-                      <IconButton size="small" onClick={() => setShowProfileDetails(false)}>
-                        <Close sx={{ fontSize: 16 }} />
-                      </IconButton>
-                    </Stack>
-
-                    <Divider />
-
-                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
-                      <Box>
-                        <Typography variant="caption" color="#65676b" fontWeight={600}>
-                          Full Name
-                        </Typography>
-                        <Typography variant="body2" color="#050505" fontWeight={500}>
-                          {customerProfile.name || 'N/A'}
-                        </Typography>
-                      </Box>
-
-                      <Box>
-                        <Typography variant="caption" color="#65676b" fontWeight={600}>
-                          Email
-                        </Typography>
-                        <Stack direction="row" spacing={0.5} alignItems="center">
-                          <Email sx={{ fontSize: 14, color: '#65676b' }} />
-                          <Typography variant="body2" color="#050505">
-                            {customerProfile.email || 'N/A'}
-                          </Typography>
-                        </Stack>
-                      </Box>
-
-                      <Box>
-                        <Typography variant="caption" color="#65676b" fontWeight={600}>
-                          Phone
-                        </Typography>
-                        <Stack direction="row" spacing={0.5} alignItems="center">
-                          <Phone sx={{ fontSize: 14, color: '#65676b' }} />
-                          <Typography variant="body2" color="#050505">
-                            {customerProfile.phone || 'N/A'}
-                          </Typography>
-                        </Stack>
-                      </Box>
-
-                      <Box>
-                        <Typography variant="caption" color="#65676b" fontWeight={600}>
-                          User ID
-                        </Typography>
-                        <Typography variant="body2" color="#050505" fontFamily="monospace" fontSize="0.8rem">
-                          {customerProfile.user_id ? `#${customerProfile.user_id}` : 'Guest'}
-                        </Typography>
-                      </Box>
-
-                      <Box>
-                        <Typography variant="caption" color="#65676b" fontWeight={600}>
-                          Account Status
-                        </Typography>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Chip
-                            icon={customerProfile.is_registered ? <CheckCircle sx={{ fontSize: 14 }} /> : <Cancel sx={{ fontSize: 14 }} />}
-                            label={customerProfile.is_registered ? 'Registered' : 'Guest'}
-                            size="small"
-                            sx={{
-                              height: 22,
-                              fontSize: '0.7rem',
-                              bgcolor: customerProfile.is_registered ? '#dcfce7' : '#f1f5f9',
-                              color: customerProfile.is_registered ? '#15803d' : '#64748b',
-                            }}
-                          />
-                        </Stack>
-                      </Box>
-
-                      <Box>
-                        <Typography variant="caption" color="#65676b" fontWeight={600}>
-                          Active Status
-                        </Typography>
-                        <Chip
-                          icon={customerProfile.is_active ? <Circle sx={{ fontSize: 8, color: '#22c55e' }} /> : <Circle sx={{ fontSize: 8, color: '#94a3b8' }} />}
-                          label={customerProfile.is_active ? 'Active Now' : 'Offline'}
-                          size="small"
-                          sx={{
-                            height: 22,
-                            fontSize: '0.7rem',
-                            bgcolor: customerProfile.is_active ? '#dcfce7' : '#f1f5f9',
-                            color: customerProfile.is_active ? '#15803d' : '#64748b',
-                          }}
-                        />
-                      </Box>
-
-                      {customerProfile.created_at && (
-                        <Box sx={{ gridColumn: { sm: '1 / -1' } }}>
-                          <Typography variant="caption" color="#65676b" fontWeight={600}>
-                            Member Since
-                          </Typography>
-                          <Stack direction="row" spacing={0.5} alignItems="center">
-                            <AccessTime sx={{ fontSize: 14, color: '#65676b' }} />
-                            <Typography variant="body2" color="#050505">
-                              {formatDate(customerProfile.created_at)}
-                            </Typography>
-                          </Stack>
-                        </Box>
-                      )}
-
-                      {customerProfile.telegram_chat_id && (
-                        <Box sx={{ gridColumn: { sm: '1 / -1' } }}>
-                          <Typography variant="caption" color="#65676b" fontWeight={600}>
-                            Telegram Connected
-                          </Typography>
-                          <Typography variant="body2" color="#22c55e" fontWeight={500}>
-                            ✅ Yes (ID: {customerProfile.telegram_chat_id})
-                          </Typography>
-                        </Box>
-                      )}
-                    </Box>
-                  </Stack>
-                </Paper>
-              )}
+              
             </Box>
 
-            {/* ✅ SCROLLABLE MESSAGES - This part scrolls */}
+            {/* Messages */}
             <Box
               ref={messagesContainerRef}
               onScroll={handleScroll}
@@ -1347,27 +1252,16 @@ const AdminChat = () => {
                 overflow: 'auto',
                 px: { xs: 1, sm: 2, md: 3 },
                 py: 2,
-                '&::-webkit-scrollbar': {
-                  width: '6px',
-                },
-                '&::-webkit-scrollbar-track': {
-                  background: '#f1f1f1',
-                  borderRadius: '10px',
-                },
-                '&::-webkit-scrollbar-thumb': {
-                  background: '#c1c1c1',
-                  borderRadius: '10px',
-                  '&:hover': {
-                    background: '#a8a8a8',
-                  },
-                },
+                '&::-webkit-scrollbar': { width: '6px' },
+                '&::-webkit-scrollbar-track': { background: '#f1f1f1', borderRadius: '10px' },
+                '&::-webkit-scrollbar-thumb': { background: '#c1c1c1', borderRadius: '10px', '&:hover': { background: '#a8a8a8' } },
               }}
             >
               {loading ? (
                 <Box textAlign="center" py={6}><CircularProgress size={28} sx={{ color: '#1877f2' }} /></Box>
               ) : messages.length === 0 ? (
                 <Box textAlign="center" pt={4}>
-                  {/* Empty state */}
+                  <Typography color="#94a3b8">No messages yet</Typography>
                 </Box>
               ) : (
                 <Stack spacing={0.5}>
@@ -1382,7 +1276,7 @@ const AdminChat = () => {
                         position: 'relative',
                       }}
                     >
-                      {/* Avatar for customer messages */}
+                      {/* Customer Avatar */}
                       {m.from === 'customer' && (
                         <Avatar
                           sx={{
@@ -1405,131 +1299,60 @@ const AdminChat = () => {
                       )}
 
                       <Box sx={{ maxWidth: '70%', display: 'flex', flexDirection: 'column' }}>
-                        {/* Sender name for customer messages */}
                         {m.from === 'customer' && (
                           <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5, ml: 1 }}>
-                            <Typography
-                              variant="caption"
-                              sx={{ color: 'text.secondary', fontWeight: 'bold', mr: 1 }}
-                            >
+                            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 'bold', mr: 1 }}>
                               {m.senderName || getDisplayName()}
                             </Typography>
                           </Box>
                         )}
 
                         <Box sx={{ position: 'relative', width: '100%' }}>
-                          <Box
-                            className="message-bubble"
-                            sx={{
-                              position: 'relative',
-                              '&:hover .msg-actions': {
-                                opacity: 1,
-                                visibility: 'visible'
-                              },
-                            }}
-                          >
-                            {/* Message Actions - shown on hover like your ChatMessage */}
-                            <Box
-                              className="msg-actions"
-                              sx={{
-                                position: 'absolute',
-                                top: -36,
-                                right: m.from === 'admin' ? 0 : 'auto',
-                                left: m.from === 'customer' ? 0 : 'auto',
-                                opacity: 0,
-                                visibility: 'hidden',
-                                transition: 'opacity 0.2s ease, visibility 0.2s ease',
-                                bgcolor: 'white',
-                                borderRadius: '20px',
-                                boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
-                                px: 0.5,
-                                py: 0.3,
-                                display: 'flex',
-                                zIndex: 10,
-                                alignItems: 'center',
-                                border: '1px solid #e4e6eb',
-                              }}
-                            >
+                          <Box className="message-bubble" sx={{ position: 'relative', '&:hover .msg-actions': { opacity: 1, visibility: 'visible' } }}>
+                            {/* Message Actions */}
+                            <Box className="msg-actions" sx={{
+                              position: 'absolute',
+                              top: -36,
+                              right: m.from === 'admin' ? 0 : 'auto',
+                              left: m.from === 'customer' ? 0 : 'auto',
+                              opacity: 0,
+                              visibility: 'hidden',
+                              transition: 'opacity 0.2s ease, visibility 0.2s ease',
+                              bgcolor: 'white',
+                              borderRadius: '20px',
+                              boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+                              px: 0.5,
+                              py: 0.3,
+                              display: 'flex',
+                              zIndex: 10,
+                              alignItems: 'center',
+                              border: '1px solid #e4e6eb',
+                            }}>
                               {QUICK_REACTIONS.map(r => (
-                                <IconButton
-                                  key={r}
-                                  size="small"
-                                  onClick={(e) => { e.stopPropagation(); handleReaction(m.id, r); }}
-                                  sx={{
-                                    p: 0.3,
-                                    '&:hover': {
-                                      transform: 'scale(1.4)',
-                                      bgcolor: '#f0f2f5'
-                                    }
-                                  }}
-                                >
+                                <IconButton key={r} size="small" onClick={(e) => { e.stopPropagation(); handleReaction(m.id, r); }} sx={{ p: 0.3, '&:hover': { transform: 'scale(1.4)', bgcolor: '#f0f2f5' } }}>
                                   <Typography sx={{ fontSize: '1rem' }}>{r}</Typography>
                                 </IconButton>
                               ))}
-                              <IconButton
-                                size="small"
-                                onClick={(e) => { e.stopPropagation(); setEmojiPickerId(emojiPickerId === m.id ? null : m.id); }}
-                                sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}
-                              >
+                              <IconButton size="small" onClick={(e) => { e.stopPropagation(); setEmojiPickerId(emojiPickerId === m.id ? null : m.id); }} sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}>
                                 <InsertEmoticon sx={{ fontSize: 16, color: '#65676b' }} />
                               </IconButton>
                               {m.from === 'admin' && (
-                                <IconButton
-                                  size="small"
-                                  onClick={(e) => { e.stopPropagation(); setSelectedMessage(m); setMessageMenu(e.currentTarget); }}
-                                  sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}
-                                >
+                                <IconButton size="small" onClick={(e) => { e.stopPropagation(); setSelectedMessage(m); setMessageMenu(e.currentTarget); }} sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}>
                                   <MoreHoriz sx={{ fontSize: 16, color: '#65676b' }} />
                                 </IconButton>
                               )}
-                              <IconButton
-                                size="small"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (m.type === 'text') handleCopyText(m.text);
-                                  else if (m.type === 'image') handleCopyText(m.imageUrl);
-                                  else if (m.type === 'file' && m.fileData) handleCopyText(m.fileData.url);
-                                  else if (m.type === 'voice' && m.voiceUrl) handleCopyText(m.voiceUrl);
-                                }}
-                                sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}
-                              >
+                              <IconButton size="small" onClick={(e) => { e.stopPropagation(); if (m.type === 'text') handleCopyText(m.text); else if (m.type === 'image') handleCopyText(m.imageUrl); else if (m.type === 'file' && m.fileData) handleCopyText(m.fileData.url); else if (m.type === 'voice' && m.voiceUrl) handleCopyText(m.voiceUrl); }} sx={{ p: 0.3, '&:hover': { bgcolor: '#f0f2f5' } }}>
                                 <ContentCopy sx={{ fontSize: 14, color: '#65676b' }} />
                               </IconButton>
                             </Box>
 
                             {/* Message Content */}
                             {m.type === 'text' && (
-                              <Box
-                                sx={{
-                                  bgcolor: m.from === 'admin' ? 'primary.main' : 'white',
-                                  p: 2,
-                                  borderRadius: 3,
-                                  boxShadow: 1,
-                                  wordBreak: 'break-word',
-                                  transition: 'all 0.2s',
-                                }}
-                              >
-                                <Typography
-                                  variant="body2"
-                                  sx={{
-                                    color: m.from === 'admin' ? 'white' : 'text.primary',
-                                    wordBreak: 'break-word',
-                                    lineHeight: 1.4,
-                                    fontSize: '0.9rem',
-                                  }}
-                                >
+                              <Box sx={{ bgcolor: m.from === 'admin' ? 'primary.main' : 'white', p: 2, borderRadius: 3, boxShadow: 1, wordBreak: 'break-word', transition: 'all 0.2s' }}>
+                                <Typography variant="body2" sx={{ color: m.from === 'admin' ? 'white' : 'text.primary', wordBreak: 'break-word', lineHeight: 1.4, fontSize: '0.9rem' }}>
                                   {m.text}
                                   {m.isEdited && (
-                                    <Typography
-                                      component="span"
-                                      variant="caption"
-                                      sx={{
-                                        fontSize: '0.6rem',
-                                        opacity: 0.7,
-                                        ml: 0.5,
-                                        color: m.from === 'admin' ? 'rgba(255,255,255,0.7)' : 'text.secondary',
-                                      }}
-                                    >
+                                    <Typography component="span" variant="caption" sx={{ fontSize: '0.6rem', opacity: 0.7, ml: 0.5, color: m.from === 'admin' ? 'rgba(255,255,255,0.7)' : 'text.secondary' }}>
                                       (edited)
                                     </Typography>
                                   )}
@@ -1539,129 +1362,34 @@ const AdminChat = () => {
 
                             {m.type === 'image' && (
                               <Box sx={{ mb: 1, position: 'relative' }}>
-                                <Box
-                                  sx={{
-                                    maxWidth: 250,
-                                    borderRadius: '12px',
-                                    overflow: 'hidden',
-                                    cursor: 'pointer',
-                                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                                    '&:hover': { opacity: 0.9 }
-                                  }}
-                                  onClick={() => handleOpenViewer(m.imageUrl, null, m.id)}
-                                >
-                                  <img
-                                    src={m.imageUrl}
-                                    alt="Shared"
-                                    style={{ width: '100%', display: 'block', maxHeight: 250, objectFit: 'cover' }}
-                                  />
+                                <Box sx={{ maxWidth: 250, borderRadius: '12px', overflow: 'hidden', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', '&:hover': { opacity: 0.9 } }} onClick={() => handleOpenViewer(m.imageUrl, null, m.id)}>
+                                  <img src={m.imageUrl} alt="Shared" style={{ width: '100%', display: 'block', maxHeight: 250, objectFit: 'cover' }} />
                                 </Box>
-                                <Typography
-                                  variant="caption"
-                                  sx={{
-                                    display: 'block',
-                                    mt: 0.5,
-                                    color: m.from === 'admin' ? 'white' : '#65676b',
-                                    opacity: 0.8,
-                                    fontSize: '0.7rem'
-                                  }}
-                                >
+                                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: m.from === 'admin' ? 'white' : '#65676b', opacity: 0.8, fontSize: '0.7rem' }}>
                                   📷 Photo
                                 </Typography>
                               </Box>
                             )}
 
                             {m.type === 'file' && m.fileData && (
-                              <Paper
-                                sx={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  p: 1,
-                                  bgcolor: m.from === 'admin' ? 'primary.main' : 'grey.300',
-                                  color: m.from === 'admin' ? 'white' : 'black',
-                                  borderRadius: 2,
-                                  cursor: 'pointer',
-                                  maxWidth: { xs: 200, sm: 400 },
-                                }}
-                                onClick={() => handleOpenViewer(null, m.fileData, m.id)}
-                              >
-                                <Box
-                                  sx={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    backgroundColor: 'white',
-                                    padding: 1,
-                                    borderRadius: '50%',
-                                    width: 40,
-                                    height: 40,
-                                    mr: 0.5
-                                  }}
-                                >
+                              <Paper sx={{ display: 'flex', alignItems: 'center', p: 1, bgcolor: m.from === 'admin' ? 'primary.main' : 'grey.300', color: m.from === 'admin' ? 'white' : 'black', borderRadius: 2, cursor: 'pointer', maxWidth: { xs: 200, sm: 400 } }} onClick={() => handleOpenViewer(null, m.fileData, m.id)}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', backgroundColor: 'white', padding: 1, borderRadius: '50%', width: 40, height: 40, mr: 0.5 }}>
                                   <AttachFile sx={{ mr: 1, color: m.from === 'admin' ? 'primary.main' : 'grey' }} />
                                 </Box>
-                                <Typography
-                                  variant="body2"
-                                  noWrap
-                                  sx={{
-                                    textDecoration: 'none',
-                                    '&:hover': {
-                                      textDecoration: 'underline',
-                                    },
-                                  }}
-                                >
+                                <Typography variant="body2" noWrap sx={{ textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
                                   {m.fileData.name || 'File'}
                                 </Typography>
                               </Paper>
                             )}
 
                             {m.type === 'voice' && (
-                              <Stack
-                                direction="row"
-                                spacing={1.2}
-                                alignItems="center"
-                                sx={{
-                                  px: 1.5,
-                                  py: 1.2,
-                                  borderRadius: '18px',
-                                  bgcolor: m.from === 'admin' ? 'primary.main' : '#f0f2f5',
-                                  border: m.from === 'admin' ? '1px solid rgba(255,255,255,0.2)' : '1px solid #e4e6eb',
-                                  minWidth: 200,
-                                  maxWidth: 280
-                                }}
-                              >
-                                <Box
-                                  onClick={() => playVoice(m.voiceUrl, m.id)}
-                                  sx={{
-                                    width: 36,
-                                    height: 36,
-                                    borderRadius: '50%',
-                                    bgcolor: '#0084ff',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    cursor: 'pointer',
-                                    flexShrink: 0,
-                                    '&:hover': { bgcolor: '#0066cc' }
-                                  }}
-                                >
-                                  {playingAudio === m.id ? (
-                                    <Pause sx={{ fontSize: 16, color: 'white' }} />
-                                  ) : (
-                                    <PlayArrow sx={{ fontSize: 18, color: 'white', ml: 0.3 }} />
-                                  )}
+                              <Stack direction="row" spacing={1.2} alignItems="center" sx={{ px: 1.5, py: 1.2, borderRadius: '18px', bgcolor: m.from === 'admin' ? 'primary.main' : '#f0f2f5', border: m.from === 'admin' ? '1px solid rgba(255,255,255,0.2)' : '1px solid #e4e6eb', minWidth: 200, maxWidth: 280 }}>
+                                <Box onClick={() => playVoice(m.voiceUrl, m.id)} sx={{ width: 36, height: 36, borderRadius: '50%', bgcolor: '#0084ff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, '&:hover': { bgcolor: '#0066cc' } }}>
+                                  {playingAudio === m.id ? <Pause sx={{ fontSize: 16, color: 'white' }} /> : <PlayArrow sx={{ fontSize: 18, color: 'white', ml: 0.3 }} />}
                                 </Box>
                                 <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.25, height: 32 }}>
                                   {[12, 16, 10, 20, 14, 18, 24, 12, 16, 22, 14, 18, 20, 12, 16, 10, 22, 14, 18, 12].map((h, i) => (
-                                    <Box
-                                      key={i}
-                                      sx={{
-                                        width: 2.5,
-                                        height: `${h}px`,
-                                        borderRadius: '3px',
-                                        bgcolor: playingAudio === m.id ? '#0084ff' : '#94a3b8',
-                                        opacity: playingAudio === m.id ? 1 : 0.5
-                                      }}
-                                    />
+                                    <Box key={i} sx={{ width: 2.5, height: `${h}px`, borderRadius: '3px', bgcolor: playingAudio === m.id ? '#0084ff' : '#94a3b8', opacity: playingAudio === m.id ? 1 : 0.5 }} />
                                   ))}
                                 </Box>
                                 {m.voiceDuration > 0 && (
@@ -1672,74 +1400,45 @@ const AdminChat = () => {
                               </Stack>
                             )}
 
-                            {/* Reaction Display - Like your ChatMessage component */}
+                            {/* Reaction */}
                             {m.reaction && (
-                              <Box
-                                sx={{
-                                  display: 'inline-flex',
-                                  mt: 0.5,
-                                }}
-                              >
-                                <Chip
-                                  label={m.reaction}
-                                  size="small"
-                                  onClick={() => handleReaction(m.id, m.reaction)}
-                                  sx={{
-                                    height: 22,
-                                    fontSize: '0.8rem',
-                                    bgcolor: 'white',
-                                    boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
-                                    borderRadius: '12px',
-                                    border: '1px solid #e4e6eb',
-                                    cursor: 'pointer',
-                                    '&:hover': { bgcolor: '#f0f2f5' }
-                                  }}
-                                />
+                              <Box sx={{ display: 'inline-flex', mt: 0.5 }}>
+                                <Chip label={m.reaction} size="small" onClick={() => handleReaction(m.id, m.reaction)} sx={{ height: 22, fontSize: '0.8rem', bgcolor: 'white', boxShadow: '0 1px 4px rgba(0,0,0,0.15)', borderRadius: '12px', border: '1px solid #e4e6eb', cursor: 'pointer', '&:hover': { bgcolor: '#f0f2f5' } }} />
                               </Box>
                             )}
 
-                            {/* Timestamp and Read Status - Like your ChatMessage component */}
-                            <Box sx={{
-                              display: 'flex',
-                              justifyContent: m.from === 'admin' ? 'flex-end' : 'flex-start',
-                              alignItems: 'center',
-                              mt: 0.5,
-                              gap: 0.5,
-                            }}>
-                              <Typography
-                                variant="caption"
-                                sx={{
-                                  opacity: 0.7,
-                                  fontSize: '0.7rem',
-                                  lineHeight: 1,
-                                  color: 'text.secondary',
-                                  mt: 0.25
-                                }}
-                              >
+                            {/* Time */}
+                            <Box sx={{ display: 'flex', justifyContent: m.from === 'admin' ? 'flex-end' : 'flex-start', alignItems: 'center', mt: 0.5, gap: 0.5 }}>
+                              <Typography variant="caption" sx={{ opacity: 0.7, fontSize: '0.7rem', lineHeight: 1, color: 'text.secondary', mt: 0.25 }}>
                                 {m.time}
-                                {m.isEdited && (
-                                  <span style={{ opacity: 0.6, marginLeft: 4 }}>· edited</span>
-                                )}
+                                {m.isEdited && <span style={{ opacity: 0.6, marginLeft: 4 }}>· edited</span>}
                               </Typography>
                             </Box>
                           </Box>
                         </Box>
                       </Box>
 
-                      {/* Admin avatar for admin messages */}
+                      {/* Admin Avatar - UPDATED with admin profile */}
                       {m.from === 'admin' && (
                         <Avatar
+                          src={adminProfile.avatar_url}
                           sx={{
                             width: 32,
                             height: 32,
                             ml: 1,
                             mt: 'auto',
-                            bgcolor: '#42b72a',
+                            bgcolor: adminProfile.avatar_url ? 'transparent' : '#42b72a',
                             fontSize: '0.8rem',
                             fontWeight: 'bold',
+                            border: '2px solid white',
+                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                           }}
                         >
-                          <SupportAgent sx={{ fontSize: 16 }} />
+                          {!adminProfile.avatar_url && (
+                            adminProfile.full_name
+                              ? adminProfile.full_name.charAt(0).toUpperCase()
+                              : <SupportAgent sx={{ fontSize: 16 }} />
+                          )}
                         </Avatar>
                       )}
                     </Box>
@@ -1748,19 +1447,8 @@ const AdminChat = () => {
                   {/* Typing Indicator */}
                   {isCustomerTyping && (
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 1, mt: 1 }}>
-                      <Avatar
-                        sx={{
-                          width: 32,
-                          height: 32,
-                          bgcolor: getAvatarUrl() ? 'transparent' : '#1877f2'
-                        }}
-                        src={getAvatarUrl() || ''}
-                      >
-                        {!getAvatarUrl() && (
-                          <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'white' }}>
-                            {getInitials()}
-                          </Typography>
-                        )}
+                      <Avatar sx={{ width: 32, height: 32, bgcolor: getAvatarUrl() ? 'transparent' : '#1877f2' }} src={getAvatarUrl() || ''}>
+                        {!getAvatarUrl() && <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'white' }}>{getInitials()}</Typography>}
                       </Avatar>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, bgcolor: '#e4e6eb', px: 2, py: 1, borderRadius: 2 }}>
                         <Typography variant="caption" color="text.secondary">{getDisplayName()} is typing</Typography>
@@ -1778,70 +1466,36 @@ const AdminChat = () => {
               )}
             </Box>
 
-            {/* ✅ FIXED INPUT - Always visible at bottom */}
-            <Box sx={{
-              px: { xs: 1, sm: 2 },
-              pb: { xs: 1, sm: 1.5 },
-              pt: 1,
-              bgcolor: 'white',
-              flexShrink: 0,
-              borderTop: '1px solid #e4e6eb',
-              minHeight: { xs: 56, sm: 64 },
-            }}>
+            {/* Input Area */}
+            <Box sx={{ px: { xs: 1, sm: 2 }, pb: { xs: 1, sm: 1.5 }, pt: 1, bgcolor: 'white', flexShrink: 0, borderTop: '1px solid #e4e6eb', minHeight: { xs: 56, sm: 64 } }}>
               {isRecording && (
                 <Box sx={{ textAlign: 'center', mb: 1 }}>
-                  <Chip
-                    icon={<Circle sx={{ fontSize: 8, color: '#ef4444' }} />}
-                    label={`Recording ${recordingTime}s`}
-                    color="error"
-                    size="small"
-                    onDelete={stopRecording}
-                  />
+                  <Chip icon={<Circle sx={{ fontSize: 8, color: '#ef4444' }} />} label={`Recording ${recordingTime}s`} color="error" size="small" onDelete={stopRecording} />
                 </Box>
               )}
               <Stack direction="row" spacing={0.5} alignItems="center" sx={{ height: '100%' }}>
                 <input type="file" ref={imageInputRef} hidden accept="image/*" onChange={handleImageUpload} />
                 <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload} />
-                <IconButton
-                  size="small"
-                  onClick={() => imageInputRef.current?.click()}
-                  sx={{ color: '#65676b' }}
-                >
+                <IconButton size="small" onClick={() => imageInputRef.current?.click()} sx={{ color: '#65676b' }}>
                   <Image sx={{ fontSize: { xs: 20, sm: 22 } }} />
                 </IconButton>
-                <IconButton
-                  size="small"
-                  onClick={() => fileInputRef.current?.click()}
-                  sx={{ color: '#65676b' }}
-                >
+                <IconButton size="small" onClick={() => fileInputRef.current?.click()} sx={{ color: '#65676b' }}>
                   <AttachFile sx={{ fontSize: { xs: 20, sm: 22 } }} />
                 </IconButton>
                 <Box sx={{ flex: 1, bgcolor: '#f0f2f5', borderRadius: 50, px: 1.5 }}>
                   <TextField
-                    fullWidth
-                    multiline
-                    maxRows={4}
-                    size="small"
-                    placeholder="Aa"
-                    value={input}
+                    fullWidth multiline maxRows={4} size="small" placeholder="Aa" value={input}
                     onChange={(e) => {
                       setInput(e.target.value);
                       if (e.target.value.length > 0) {
                         handleTyping(true);
                         clearTimeout(typingTimeoutRef.current);
-                        typingTimeoutRef.current = setTimeout(() => {
-                          handleTyping(false);
-                        }, 2000);
-                      } else {
-                        handleTyping(false);
-                      }
+                        typingTimeoutRef.current = setTimeout(() => { handleTyping(false); }, 2000);
+                      } else { handleTyping(false); }
                     }}
                     onKeyPress={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                     variant="standard"
-                    InputProps={{
-                      disableUnderline: true,
-                      sx: { fontSize: { xs: '0.8rem', sm: '0.9rem' } }
-                    }}
+                    InputProps={{ disableUnderline: true, sx: { fontSize: { xs: '0.8rem', sm: '0.9rem' } } }}
                   />
                 </Box>
                 {input.trim() ? (
@@ -1849,13 +1503,7 @@ const AdminChat = () => {
                     <Send sx={{ fontSize: { xs: 20, sm: 22 } }} />
                   </IconButton>
                 ) : (
-                  <IconButton
-                    onMouseDown={startRecording}
-                    onMouseUp={stopRecording}
-                    onTouchStart={startRecording}
-                    onTouchEnd={stopRecording}
-                    sx={{ color: '#1877f2' }}
-                  >
+                  <IconButton onMouseDown={startRecording} onMouseUp={stopRecording} onTouchStart={startRecording} onTouchEnd={stopRecording} sx={{ color: '#1877f2' }}>
                     {isRecording ? <Stop sx={{ fontSize: { xs: 20, sm: 22 }, color: '#ef4444' }} /> : <Mic sx={{ fontSize: { xs: 20, sm: 22 } }} />}
                   </IconButton>
                 )}
@@ -1877,12 +1525,8 @@ const AdminChat = () => {
         )}
       </Box>
 
-      {/* Menus and Dialogs */}
-      <Menu
-        anchorEl={messageMenu}
-        open={Boolean(messageMenu)}
-        onClose={() => setMessageMenu(null)}
-      >
+      {/* Message Menu */}
+      <Menu anchorEl={messageMenu} open={Boolean(messageMenu)} onClose={() => setMessageMenu(null)}>
         {selectedMessage?.type === 'text' && (
           <MenuItem onClick={handleEditClick}>
             <Edit sx={{ mr: 1, fontSize: 18 }} /> Edit
@@ -1901,23 +1545,11 @@ const AdminChat = () => {
         </MenuItem>
       </Menu>
 
-      <Dialog
-        open={editDialog.open}
-        onClose={() => setEditDialog({ open: false, message: null })}
-        maxWidth="sm"
-        fullWidth
-      >
+      {/* Edit Dialog */}
+      <Dialog open={editDialog.open} onClose={() => setEditDialog({ open: false, message: null })} maxWidth="sm" fullWidth>
         <DialogTitle>Edit Message</DialogTitle>
         <DialogContent>
-          <TextField
-            fullWidth
-            multiline
-            rows={3}
-            value={editText}
-            onChange={e => setEditText(e.target.value)}
-            autoFocus
-            sx={{ mt: 1 }}
-          />
+          <TextField fullWidth multiline rows={3} value={editText} onChange={e => setEditText(e.target.value)} autoFocus sx={{ mt: 1 }} />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setEditDialog({ open: false, message: null })}>Cancel</Button>
@@ -1925,12 +1557,8 @@ const AdminChat = () => {
         </DialogActions>
       </Dialog>
 
-      <Dialog
-        open={!!deleteConfirm}
-        onClose={() => setDeleteConfirm(null)}
-        maxWidth="xs"
-        fullWidth
-      >
+      {/* Delete Confirm Dialog */}
+      <Dialog open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} maxWidth="xs" fullWidth>
         <DialogTitle>Delete Message?</DialogTitle>
         <DialogContent>
           <Typography>This will be permanently deleted.</Typography>
@@ -1941,12 +1569,8 @@ const AdminChat = () => {
         </DialogActions>
       </Dialog>
 
-      <Dialog
-        open={!!deleteSessionConfirm}
-        onClose={() => setDeleteSessionConfirm(null)}
-        maxWidth="xs"
-        fullWidth
-      >
+      {/* Delete Session Dialog */}
+      <Dialog open={!!deleteSessionConfirm} onClose={() => setDeleteSessionConfirm(null)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Delete sx={{ color: '#ef4444' }} /> Delete Conversation?
         </DialogTitle>
@@ -1964,23 +1588,9 @@ const AdminChat = () => {
         </DialogActions>
       </Dialog>
 
-      <Snackbar
-        open={notification.open}
-        autoHideDuration={5000}
-        onClose={() => setNotification({ ...notification, open: false })}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        sx={{ mt: { xs: 0, sm: 8 } }}
-      >
-        <Alert
-          severity="info"
-          variant="filled"
-          onClose={() => setNotification({ ...notification, open: false })}
-          sx={{ borderRadius: 2, cursor: 'pointer' }}
-          onClick={() => {
-            if (notification.sessionId) handleSelectCustomer(notification.sessionId);
-            setNotification({ ...notification, open: false });
-          }}
-        >
+      {/* Notifications */}
+      <Snackbar open={notification.open} autoHideDuration={5000} onClose={() => setNotification({ ...notification, open: false })} anchorOrigin={{ vertical: 'top', horizontal: 'right' }} sx={{ mt: { xs: 0, sm: 8 } }}>
+        <Alert severity="info" variant="filled" onClose={() => setNotification({ ...notification, open: false })} sx={{ borderRadius: 2, cursor: 'pointer' }} onClick={() => { if (notification.sessionId) handleSelectCustomer(notification.sessionId); setNotification({ ...notification, open: false }); }}>
           <Stack spacing={0.3}>
             <Typography variant="subtitle2" fontWeight={700}>📩 {notification.customerName}</Typography>
             <Typography variant="body2" sx={{ opacity: 0.9 }}>{notification.message}</Typography>
@@ -1988,33 +1598,15 @@ const AdminChat = () => {
         </Alert>
       </Snackbar>
 
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar(s => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-      >
+      <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar(s => ({ ...s, open: false }))} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
         <Alert severity={snackbar.severity} variant="filled" sx={{ borderRadius: 2 }}>
           {snackbar.message}
         </Alert>
       </Snackbar>
 
-      <FileViewer
-        open={viewer.open}
-        imageUrl={viewer.imageUrl}
-        fileData={viewer.fileData}
-        messageId={viewer.messageId}
-        onClose={handleCloseViewer}
-      />
+      <FileViewer open={viewer.open} imageUrl={viewer.imageUrl} fileData={viewer.fileData} messageId={viewer.messageId} onClose={handleCloseViewer} />
 
-      <style>
-        {`
-          @keyframes typingBounce {
-            0%, 60%, 100% { transform: translateY(0); }
-            30% { transform: translateY(-6px); }
-          }
-        `}
-      </style>
+      <style>{`@keyframes typingBounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }`}</style>
     </Box>
   );
 };

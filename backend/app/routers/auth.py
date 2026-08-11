@@ -33,6 +33,7 @@ router = APIRouter(
 class ProfileUpdate(BaseModel):
     full_name: Optional[str] = None
     phone: Optional[str] = None
+    avatar_url: Optional[str] = None
 
 class PasswordChange(BaseModel):
     current_password: str
@@ -170,7 +171,7 @@ async def get_current_user_info(
     
 @router.put("/profile")
 async def update_profile(
-    data: UserUpdate,
+    data: ProfileUpdate, 
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -181,6 +182,8 @@ async def update_profile(
         current_user.full_name = data.full_name
     if data.phone is not None:
         current_user.phone = data.phone
+    if data.avatar_url is not None:
+        current_user.avatar_url = data.avatar_url
     
     await db.commit()
     await db.refresh(current_user)
@@ -190,7 +193,8 @@ async def update_profile(
         "email": current_user.email,
         "full_name": current_user.full_name,
         "phone": current_user.phone,
-        "role": current_user.role,
+        "avatar_url": current_user.avatar_url,
+        "role": current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role),
         "is_active": current_user.is_active,
         "message": "Profile updated successfully"
     }

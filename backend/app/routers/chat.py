@@ -119,9 +119,11 @@ async def admin_reply(
     if current_user.role.value != "admin":
         raise HTTPException(403, "Only admins can reply")
     
+    admin_name = data.admin_name or current_user.full_name or "Support Agent"
+    
     reply = ChatMessage(
         user_id=current_user.id,
-        sender_name=data.admin_name or f"Admin - {current_user.full_name}",
+        sender_name=admin_name,
         sender_email=current_user.email,
         message=data.message,
         session_id=data.session_id,
@@ -133,20 +135,26 @@ async def admin_reply(
     await db.commit()
     await db.refresh(reply)
     
-    # Send WebSocket notification with REAL ID
+    # Get admin profile info
+    admin_avatar = current_user.avatar_url if hasattr(current_user, 'avatar_url') else None
+    
+    # Send WebSocket notification with REAL ID and admin profile
     await manager.reply_to_customer(data.session_id, {
         "type": "admin_reply",
         "message": data.message,
         "message_type": "text",
-        "admin_name": data.admin_name or current_user.full_name,
+        "admin_name": admin_name,
+        "admin_avatar": admin_avatar,
+        "admin_role": "Support Agent",
         "timestamp": str(reply.created_at),
         "message_id": reply.id  # Real database ID
     })
     
     return {
         "message": "Reply sent", 
-        "id": reply.id,  # Real database ID
-        "session_id": data.session_id
+        "id": reply.id,
+        "session_id": data.session_id,
+        "admin_name": admin_name
     }
 
 
@@ -187,12 +195,16 @@ async def upload_chat_image(
     
     # Notify with REAL ID
     if is_admin:
+        admin_name = current_user.full_name if current_user else sender_name
+        admin_avatar = current_user.avatar_url if current_user and hasattr(current_user, 'avatar_url') else None
+        
         await manager.reply_to_customer(session_id, {
             "type": "admin_reply",
             "message": result["url"],
             "message_type": "image",
             "image_url": result["url"],
-            "admin_name": sender_name,
+            "admin_name": admin_name,
+            "admin_avatar": admin_avatar,
             "timestamp": str(msg.created_at),
             "message_id": msg.id  # Real ID
         })
@@ -257,12 +269,16 @@ async def upload_chat_file(
     
     # Notify with REAL ID
     if is_admin:
+        admin_name = current_user.full_name if current_user else sender_name
+        admin_avatar = current_user.avatar_url if current_user and hasattr(current_user, 'avatar_url') else None
+        
         await manager.reply_to_customer(session_id, {
             "type": "admin_reply",
             "message": json.dumps(file_info),
             "message_type": "file",
             "file_data": file_info,
-            "admin_name": sender_name,
+            "admin_name": admin_name,
+            "admin_avatar": admin_avatar,
             "timestamp": str(msg.created_at),
             "message_id": msg.id
         })
@@ -331,13 +347,17 @@ async def upload_chat_voice(
     
     # Notify with REAL ID
     if is_admin:
+        admin_name = current_user.full_name if current_user else sender_name
+        admin_avatar = current_user.avatar_url if current_user and hasattr(current_user, 'avatar_url') else None
+        
         await manager.reply_to_customer(session_id, {
             "type": "admin_reply",
             "message": json.dumps(voice_info),
             "message_type": "voice",
             "voice_url": result["url"],
             "voice_duration": duration,
-            "admin_name": sender_name,
+            "admin_name": admin_name,
+            "admin_avatar": admin_avatar,
             "timestamp": str(msg.created_at),
             "message_id": msg.id
         })
@@ -824,3 +844,57 @@ async def get_customer_profile_by_user_id(
         "created_at": str(user.created_at) if user.created_at else None,
         "is_admin": is_admin  # ✅ Add this flag
     }
+    
+@router.get("/admin-profile")
+async def get_admin_profile(
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user)
+):
+    """
+    Get the admin/support profile for customer chat
+    """
+    try:
+        # Get the first available admin user
+        result = await db.execute(
+            select(User)
+            .where(
+                User.role == "admin",
+                User.is_active == True
+            )
+            .order_by(User.created_at.asc())
+            .limit(1)
+        )
+        admin_user = result.scalars().first()
+        
+        if admin_user:
+            return {
+                "full_name": admin_user.full_name or "Support Agent",
+                "email": admin_user.email,
+                "avatar_url": getattr(admin_user, 'avatar_url', None),
+                "role": "Support Agent",
+                "is_online": True,
+                "phone": getattr(admin_user, 'phone', None),
+                "department": "Customer Support"
+            }
+        else:
+            # Return default support profile if no admin found
+            return {
+                "full_name": "TeleShop Support",
+                "email": "support@teleshop.com",
+                "avatar_url": None,
+                "role": "Support Agent",
+                "is_online": True,
+                "phone": None,
+                "department": "Customer Support"
+            }
+    except Exception as e:
+        print(f"Error fetching admin profile: {e}")
+        return {
+            "full_name": "TeleShop Support",
+            "email": "support@teleshop.com",
+            "avatar_url": None,
+            "role": "Support Agent",
+            "is_online": True,
+            "phone": None,
+            "department": "Customer Support"
+        }

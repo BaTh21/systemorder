@@ -54,6 +54,18 @@ const ChatSupport = () => {
   const [isAdminTyping, setIsAdminTyping] = useState(false);
   const [imagePreview, setImagePreview] = useState({ open: false, url: '' });
 
+  // Admin profile state - matches backend response
+  const [adminProfile, setAdminProfile] = useState({
+    full_name: 'TeleShop Support',
+    username: 'support',
+    email: null,
+    avatar_url: null,
+    role: 'Support Agent',
+    is_online: false,
+    phone: null,
+    department: 'Customer Support'
+  });
+
   const [sessionId, setSessionId] = useState(() => {
     if (user?.id) return `user_${user.id}`;
     let id = localStorage.getItem('chat_guest_session');
@@ -90,6 +102,38 @@ const ChatSupport = () => {
   const customerName = getCustomerDisplayName(user);
   const customerEmail = getCustomerEmail(user);
 
+  // Fetch admin profile from API
+  const fetchAdminProfile = async () => {
+    try {
+      const response = await api.get('/chat/admin-profile');
+      if (response.data) {
+        console.log('👤 Admin profile fetched:', response.data);
+        const profileData = {
+          full_name: response.data.full_name || 'TeleShop Support',
+          email: response.data.email || null,
+          avatar_url: response.data.avatar_url || null,
+          role: response.data.role || 'Support Agent',
+          is_online: connected,
+          phone: response.data.phone || null,
+          department: response.data.department || 'Customer Support'
+        };
+        setAdminProfile(profileData);
+        localStorage.setItem('chat_admin_profile', JSON.stringify(profileData));
+      }
+    } catch (error) {
+      console.log('Could not fetch admin profile, using cached or defaults');
+      const savedProfile = localStorage.getItem('chat_admin_profile');
+      if (savedProfile) {
+        try {
+          const parsed = JSON.parse(savedProfile);
+          setAdminProfile(prev => ({ ...prev, ...parsed, is_online: connected }));
+        } catch (e) {
+          console.error('Error parsing saved admin profile:', e);
+        }
+      }
+    }
+  };
+
   // Update session ID when user logs in
   useEffect(() => {
     if (user?.id) {
@@ -98,13 +142,20 @@ const ChatSupport = () => {
     }
   }, [user?.id]);
 
+  // Fetch admin profile when drawer opens
+  useEffect(() => {
+    if (open) {
+      fetchAdminProfile();
+    }
+  }, [open]);
+
   // Connect WebSocket
   useEffect(() => {
     if (!token) {
       console.log('⚠️ No token, WebSocket connection skipped');
       return;
     }
-    
+
     const wsUrl = `${getWsUrl()}/ws/customer/${token}`;
     console.log('🔗 Connecting WebSocket:', wsUrl);
     const ws = new WebSocket(wsUrl);
@@ -141,25 +192,57 @@ const ChatSupport = () => {
           return;
         }
 
+        // Handle admin info
+        if (d.type === 'admin_info') {
+          console.log('👤 Admin info received via WebSocket:', d);
+          const profileData = {
+            full_name: d.admin_name || d.full_name || 'Support Agent',
+            email: d.email || null,
+            avatar_url: d.admin_avatar || d.avatar_url || null,
+            role: d.admin_role || d.role || 'Support Agent',
+            is_online: true,
+            phone: d.phone || null,
+            department: d.department || 'Customer Support'
+          };
+          setAdminProfile(profileData);
+          localStorage.setItem('chat_admin_profile', JSON.stringify(profileData));
+          return;
+        }
+
         // ADMIN REPLY - Real time
         if (d.type === 'admin_reply') {
+          // Update admin profile from message if we get new info
+          if (d.admin_name || d.admin_avatar) {
+            setAdminProfile(prev => {
+              const updated = {
+                ...prev,
+                full_name: d.admin_name || prev.full_name,
+                avatar_url: d.admin_avatar || prev.avatar_url,
+                is_online: true
+              };
+              localStorage.setItem('chat_admin_profile', JSON.stringify(updated));
+              return updated;
+            });
+          }
+
           setMessages(prev => {
             if (d.message_id && prev.find(m => m.id === d.message_id)) return prev;
-            
+
             const msgType = d.message_type || 'text';
             let messageData = {
               id: d.message_id || ('admin_' + Date.now()),
               from: 'admin',
               type: msgType,
               time: d.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              adminName: d.admin_name,
+              adminName: d.admin_name || adminProfile.full_name || 'Support Agent',
+              adminAvatar: d.admin_avatar || adminProfile.avatar_url || null,
               isEdited: false,
               reaction: null,
               reactions: [],
               is_read: true,
               created_at: d.timestamp || new Date().toISOString()
             };
-            
+
             if (msgType === 'text') {
               messageData.text = d.message || '';
               messageData.content = d.message || '';
@@ -181,15 +264,15 @@ const ChatSupport = () => {
               messageData.content = d.voice_url || '';
               messageData.text = '';
             }
-            
+
+            console.log('👤 Adding admin message:', messageData);
             return [...prev, messageData];
           });
-          
-          // Update unread count when drawer is closed
+
           if (!isDrawerOpen) {
             setUnreadCount(prev => prev + 1);
           }
-          
+
           setTimeout(() => {
             messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
           }, 100);
@@ -198,14 +281,14 @@ const ChatSupport = () => {
         else if (d.type === 'message_sent') {
           setMessages(prev => {
             if (d.message_id && prev.find(m => m.id === d.message_id)) return prev;
-            return [...prev, { 
-              id: d.message_id, 
-              from: 'user', 
-              text: d.message || '', 
+            return [...prev, {
+              id: d.message_id,
+              from: 'user',
+              text: d.message || '',
               content: d.message || '',
-              type: d.message_type || 'text', 
-              time: d.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), 
-              isEdited: false, 
+              type: d.message_type || 'text',
+              time: d.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              isEdited: false,
               reaction: null,
               reactions: [],
               is_read: false,
@@ -215,7 +298,7 @@ const ChatSupport = () => {
         }
         // MESSAGE EDITED
         else if (d.type === 'message_edited') {
-          setMessages(prev => prev.map(m => 
+          setMessages(prev => prev.map(m =>
             m.id === d.message_id ? { ...m, text: d.new_message, content: d.new_message, isEdited: true } : m
           ));
         }
@@ -229,25 +312,22 @@ const ChatSupport = () => {
             if (m.id === d.message_id) {
               const existingReactions = m.reactions || [];
               const existingReactionIndex = existingReactions.findIndex(r => r.emoji === d.reaction);
-              
+
               let updatedReactions;
               if (d.reaction === null) {
-                // Remove reaction
                 updatedReactions = existingReactions.filter(r => r.emoji !== m.reaction);
               } else if (existingReactionIndex >= 0) {
-                // Update existing reaction count
                 updatedReactions = [...existingReactions];
                 updatedReactions[existingReactionIndex] = {
                   ...updatedReactions[existingReactionIndex],
                   count: (updatedReactions[existingReactionIndex].count || 1) + 1
                 };
               } else {
-                // Add new reaction
                 updatedReactions = [...existingReactions, { emoji: d.reaction, count: 1 }];
               }
-              
-              return { 
-                ...m, 
+
+              return {
+                ...m,
                 reaction: d.reaction || null,
                 reactions: updatedReactions,
                 my_reaction: d.reaction || null
@@ -277,16 +357,17 @@ const ChatSupport = () => {
 
     ws.onclose = () => {
       setConnected(false);
+      setAdminProfile(prev => ({ ...prev, is_online: false }));
       console.log('❌ WebSocket disconnected');
     };
-    
+
     ws.onerror = (e) => {
       console.error('WS error:', e);
     };
-    
-    return () => { 
+
+    return () => {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.close(); 
+        ws.close();
       }
     };
   }, [token, sessionId]);
@@ -296,64 +377,83 @@ const ChatSupport = () => {
     if (open) loadHistory();
   }, [open, sessionId]);
 
+  // Update admin online status
+  useEffect(() => {
+    setAdminProfile(prev => ({ ...prev, is_online: connected }));
+  }, [connected]);
+
   // Scroll to bottom on new messages
-  useEffect(() => { 
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const loadHistory = async () => {
     try {
       const res = await api.get(`/chat/messages/${sessionId}`);
       if (res.data?.length) {
+        console.log('📜 Loading chat history:', res.data);
+
+        // Get admin info from first admin message
+        const adminMsg = res.data.find(m => m.is_admin_reply);
+        if (adminMsg) {
+          console.log('👤 Found admin message in history:', adminMsg);
+          setAdminProfile(prev => ({
+            ...prev,
+            full_name: adminMsg.sender_name || prev.full_name,
+            avatar_url: adminMsg.sender_avatar || prev.avatar_url
+          }));
+        }
+
         setMessages(res.data.map(m => {
           const msgType = m.message_type || 'text';
           let imageUrl = null, fileData = null, voiceUrl = null, voiceDuration = 0;
           let text = m.message || '';
           let content = m.message || '';
-          
-          if (msgType === 'image') { 
-            imageUrl = m.message; 
+
+          if (msgType === 'image') {
+            imageUrl = m.message;
             content = m.message;
-            text = ''; 
+            text = '';
           }
-          else if (msgType === 'file') { 
-            try { 
-              fileData = JSON.parse(m.message); 
+          else if (msgType === 'file') {
+            try {
+              fileData = JSON.parse(m.message);
               content = fileData.url || m.message;
-              text = ''; 
-            } catch { 
-              fileData = { url: m.message, name: 'File', size: 0 }; 
+              text = '';
+            } catch {
+              fileData = { url: m.message, name: 'File', size: 0 };
               content = m.message;
-              text = ''; 
-            } 
+              text = '';
+            }
           }
-          else if (msgType === 'voice') { 
-            try { 
-              const vd = JSON.parse(m.message); 
-              voiceUrl = vd.url; 
-              voiceDuration = vd.duration || 0; 
+          else if (msgType === 'voice') {
+            try {
+              const vd = JSON.parse(m.message);
+              voiceUrl = vd.url;
+              voiceDuration = vd.duration || 0;
               content = vd.url;
-              text = ''; 
-            } catch { 
-              voiceUrl = m.message; 
+              text = '';
+            } catch {
+              voiceUrl = m.message;
               content = m.message;
-              text = ''; 
-            } 
+              text = '';
+            }
           }
-          
-          return { 
-            id: m.id, 
-            from: m.is_admin_reply ? 'admin' : 'user', 
-            text, 
+
+          return {
+            id: m.id,
+            from: m.is_admin_reply ? 'admin' : 'user',
+            text,
             content,
-            type: msgType, 
-            imageUrl, 
-            fileData, 
-            voiceUrl, 
-            voiceDuration, 
-            time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), 
-            adminName: m.is_admin_reply ? m.sender_name : null, 
-            isEdited: m.is_edited || false, 
+            type: msgType,
+            imageUrl,
+            fileData,
+            voiceUrl,
+            voiceDuration,
+            time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            adminName: m.is_admin_reply ? (m.sender_name || adminProfile.full_name) : null,
+            adminAvatar: m.is_admin_reply ? (m.sender_avatar || adminProfile.avatar_url) : null,
+            isEdited: m.is_edited || false,
             reaction: m.reaction || null,
             reactions: m.reactions || [],
             my_reaction: m.my_reaction || null,
@@ -363,23 +463,24 @@ const ChatSupport = () => {
           };
         }));
       } else {
-        setMessages([{ 
-          id: 'welcome', 
-          from: 'support', 
-          text: '👋 Welcome! How can we help you?', 
+        setMessages([{
+          id: 'welcome',
+          from: 'support',
+          text: '👋 Welcome! How can we help you?',
           content: '👋 Welcome! How can we help you?',
-          type: 'text', 
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+          type: 'text',
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }]);
       }
-    } catch {
-      setMessages([{ 
-        id: 'welcome', 
-        from: 'support', 
-        text: '👋 Welcome! How can we help you?', 
+    } catch (err) {
+      console.error('Failed to load history:', err);
+      setMessages([{
+        id: 'welcome',
+        from: 'support',
+        text: '👋 Welcome! How can we help you?',
         content: '👋 Welcome! How can we help you?',
-        type: 'text', 
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+        type: 'text',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }]);
     }
   };
@@ -388,35 +489,34 @@ const ChatSupport = () => {
     if (!input.trim()) return;
     const txt = input; setInput('');
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
-    // Stop typing indicator
+
     handleTyping(false);
-    
+
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ 
-        message: txt, 
-        sender_name: customerName, 
-        sender_email: customerEmail, 
-        session_id: sessionId, 
-        type: 'text', 
-        timestamp: time 
+      wsRef.current.send(JSON.stringify({
+        message: txt,
+        sender_name: customerName,
+        sender_email: customerEmail,
+        session_id: sessionId,
+        type: 'text',
+        timestamp: time
       }));
     } else {
       try {
-        const res = await api.post('/chat/send', { 
-          message: txt, 
-          sender_name: customerName, 
-          sender_email: customerEmail, 
-          session_id: sessionId 
+        const res = await api.post('/chat/send', {
+          message: txt,
+          sender_name: customerName,
+          sender_email: customerEmail,
+          session_id: sessionId
         });
-        setMessages(prev => [...prev, { 
-          id: res.data.id, 
-          from: 'user', 
-          text: txt, 
+        setMessages(prev => [...prev, {
+          id: res.data.id,
+          from: 'user',
+          text: txt,
           content: txt,
-          type: 'text', 
-          time, 
-          isEdited: false, 
+          type: 'text',
+          time,
+          isEdited: false,
           reaction: null,
           reactions: [],
           is_read: false,
@@ -440,14 +540,13 @@ const ChatSupport = () => {
   const handleReaction = async (msgId, emoji) => {
     const currentMsg = messages.find(m => m.id === msgId);
     const newReaction = currentMsg?.reaction === emoji ? null : emoji;
-    
+
     setMessages(prev => prev.map(m => {
       if (m.id === msgId) {
         const existingReactions = m.reactions || [];
         let updatedReactions;
-        
+
         if (newReaction === null) {
-          // Remove reaction
           updatedReactions = existingReactions
             .map(r => r.emoji === emoji ? { ...r, count: Math.max(0, (r.count || 1) - 1) } : r)
             .filter(r => r.count > 0);
@@ -463,9 +562,9 @@ const ChatSupport = () => {
             updatedReactions = [...existingReactions, { emoji, count: 1 }];
           }
         }
-        
-        return { 
-          ...m, 
+
+        return {
+          ...m,
           reaction: newReaction,
           reactions: updatedReactions,
           my_reaction: newReaction
@@ -473,16 +572,16 @@ const ChatSupport = () => {
       }
       return m;
     }));
-    
+
     setEmojiPickerId(null);
-    
+
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ 
-        type: 'message_reaction', 
-        message_id: msgId, 
-        session_id: sessionId, 
-        reaction: newReaction, 
-        sender_name: customerName 
+      wsRef.current.send(JSON.stringify({
+        type: 'message_reaction',
+        message_id: msgId,
+        session_id: sessionId,
+        reaction: newReaction,
+        sender_name: customerName
       }));
     } else {
       try { await api.post(`/chat/messages/${msgId}/reaction`, { reaction: emoji }); } catch (e) { }
@@ -493,22 +592,22 @@ const ChatSupport = () => {
     if (!newText.trim()) return;
     try {
       await api.put(`/chat/messages/${messageId}`, { message: newText });
-      setMessages(prev => prev.map(m => 
-        m.id === messageId ? { 
-          ...m, 
-          text: newText, 
-          content: newText, 
+      setMessages(prev => prev.map(m =>
+        m.id === messageId ? {
+          ...m,
+          text: newText,
+          content: newText,
           isEdited: true,
           edited_at: new Date().toISOString()
         } : m
       ));
       setEditingMessageId(null); setEditText('');
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ 
-          type: 'message_edited', 
-          message_id: messageId, 
-          session_id: sessionId, 
-          new_message: newText 
+        wsRef.current.send(JSON.stringify({
+          type: 'message_edited',
+          message_id: messageId,
+          session_id: sessionId,
+          new_message: newText
         }));
       }
     } catch (e) { console.error('Edit failed:', e); }
@@ -520,10 +619,10 @@ const ChatSupport = () => {
       setMessages(prev => prev.filter(m => m.id !== messageId));
       setMessageMenu(null);
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ 
-          type: 'message_deleted', 
-          message_id: messageId, 
-          session_id: sessionId 
+        wsRef.current.send(JSON.stringify({
+          type: 'message_deleted',
+          message_id: messageId,
+          session_id: sessionId
         }));
       }
     } catch (e) { console.error('Delete failed:', e); }
@@ -532,11 +631,10 @@ const ChatSupport = () => {
   const handleCopyMessage = async (message) => {
     const textToCopy = message?.content || message?.text || message?.imageUrl || message?.fileData?.url || message?.voiceUrl || '';
     if (!textToCopy) return;
-    
+
     try {
       await navigator.clipboard.writeText(textToCopy);
     } catch (err) {
-      // Fallback
       const textArea = document.createElement('textarea');
       textArea.value = textToCopy;
       document.body.appendChild(textArea);
@@ -592,21 +690,21 @@ const ChatSupport = () => {
 
   const handleImageUpload = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
-    setUploading(true); 
-    const formData = new FormData(); 
-    formData.append('file', file); 
-    formData.append('session_id', sessionId); 
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('session_id', sessionId);
     formData.append('is_admin', 'false');
     try {
       const res = await api.post('/chat/upload/image', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      setMessages(prev => [...prev, { 
-        id: res.data.id, 
-        from: 'user', 
-        type: 'image', 
-        imageUrl: res.data.url, 
+      setMessages(prev => [...prev, {
+        id: res.data.id,
+        from: 'user',
+        type: 'image',
+        imageUrl: res.data.url,
         content: res.data.url,
-        text: '', 
+        text: '',
         time,
         reactions: [],
         is_read: false,
@@ -617,22 +715,22 @@ const ChatSupport = () => {
 
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
-    setUploading(true); 
-    const formData = new FormData(); 
-    formData.append('file', file); 
-    formData.append('session_id', sessionId); 
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('session_id', sessionId);
     formData.append('is_admin', 'false');
     try {
       const res = await api.post('/chat/upload/file', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const fi = { name: res.data.name || file.name, size: res.data.size || file.size, url: res.data.url };
-      setMessages(prev => [...prev, { 
-        id: res.data.id, 
-        from: 'user', 
-        type: 'file', 
-        fileData: fi, 
+      setMessages(prev => [...prev, {
+        id: res.data.id,
+        from: 'user',
+        type: 'file',
+        fileData: fi,
         content: fi.url,
-        text: '', 
+        text: '',
         time,
         reactions: [],
         is_read: false,
@@ -650,22 +748,22 @@ const ChatSupport = () => {
         clearInterval(recordingTimerRef.current);
         const finalDuration = recordingTime;
         const blob = new Blob(chunks, { type: 'audio/webm' }); if (blob.size === 0) { setIsRecording(false); setRecordingTime(0); return; }
-        const fd = new FormData(); 
-        fd.append('file', blob, `voice_${Date.now()}.webm`); 
-        fd.append('session_id', sessionId); 
-        fd.append('duration', String(finalDuration)); 
+        const fd = new FormData();
+        fd.append('file', blob, `voice_${Date.now()}.webm`);
+        fd.append('session_id', sessionId);
+        fd.append('duration', String(finalDuration));
         fd.append('is_admin', 'false');
         try {
           const res = await api.post('/chat/upload/voice', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
           const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          setMessages(prev => [...prev, { 
-            id: res.data.id, 
-            from: 'user', 
-            type: 'voice', 
-            voiceUrl: res.data.url, 
+          setMessages(prev => [...prev, {
+            id: res.data.id,
+            from: 'user',
+            type: 'voice',
+            voiceUrl: res.data.url,
             content: res.data.url,
-            voiceDuration: res.data.duration || finalDuration, 
-            text: '', 
+            voiceDuration: res.data.duration || finalDuration,
+            text: '',
             time,
             reactions: [],
             is_read: false,
@@ -711,7 +809,7 @@ const ChatSupport = () => {
   // Render message content based on type
   const renderMessageContent = (m) => {
     const isMine = m.from === 'user';
-    
+
     switch (m.type) {
       case 'image':
         return renderImageContent(m, isMine);
@@ -815,7 +913,7 @@ const ChatSupport = () => {
                 objectFit: 'cover',
               }}
             />
-            
+
             <Box
               className="image-actions"
               sx={{
@@ -983,27 +1081,27 @@ const ChatSupport = () => {
 
   return (
     <>
-      <Fab 
-        color="primary" 
-        onClick={handleDrawerOpen} 
-        sx={{ 
-          position: 'fixed', 
-          bottom: { xs: 16, sm: 24 }, 
-          right: { xs: 16, sm: 24 }, 
-          bgcolor: '#0084ff', 
-          zIndex: 1000, 
-          boxShadow: '0 4px 20px rgba(0,132,255,0.4)', 
-          width: { xs: 48, sm: 56 }, 
-          height: { xs: 48, sm: 56 }, 
-          '&:hover': { bgcolor: '#0066cc' } 
+      <Fab
+        color="primary"
+        onClick={handleDrawerOpen}
+        sx={{
+          position: 'fixed',
+          bottom: { xs: 16, sm: 24 },
+          right: { xs: 16, sm: 24 },
+          bgcolor: '#0084ff',
+          zIndex: 1000,
+          boxShadow: '0 4px 20px rgba(0,132,255,0.4)',
+          width: { xs: 48, sm: 56 },
+          height: { xs: 48, sm: 56 },
+          '&:hover': { bgcolor: '#0066cc' }
         }}
       >
-        <Badge 
-          badgeContent={unreadCount} 
-          color="error" 
+        <Badge
+          badgeContent={unreadCount}
+          color="error"
           max={99}
-          sx={{ 
-            '& .MuiBadge-badge': { 
+          sx={{
+            '& .MuiBadge-badge': {
               fontSize: { xs: '0.6rem', sm: '0.7rem' },
               height: { xs: 18, sm: 20 },
               minWidth: { xs: 18, sm: 20 },
@@ -1012,41 +1110,67 @@ const ChatSupport = () => {
               backgroundColor: '#ef4444',
               color: 'white',
               fontWeight: 'bold'
-            } 
+            }
           }}
         >
           <ChatIcon sx={{ fontSize: { xs: 22, sm: 26 } }} />
         </Badge>
       </Fab>
 
-      <Drawer 
-        anchor="right" 
-        open={open} 
-        onClose={handleDrawerClose} 
-        PaperProps={{ 
-          sx: { 
-            width: { xs: '100%', sm: 420 }, 
-            borderTopLeftRadius: { xs: 0, sm: 16 }, 
-            borderBottomLeftRadius: { xs: 0, sm: 16 } 
-          } 
+      <Drawer
+        anchor="right"
+        open={open}
+        onClose={handleDrawerClose}
+        PaperProps={{
+          sx: {
+            width: { xs: '100%', sm: 420 },
+            borderTopLeftRadius: { xs: 0, sm: 16 },
+            borderBottomLeftRadius: { xs: 0, sm: 16 }
+          }
         }}
       >
-        {/* Header */}
+        {/* Header with Admin Profile */}
         <Box sx={{ bgcolor: '#0084ff', color: 'white', p: { xs: 1.5, sm: 2 } }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Stack direction="row" spacing={1.5} alignItems="center">
-              <Avatar sx={{ bgcolor: 'white', color: '#0084ff', width: { xs: 36, sm: 40 }, height: { xs: 36, sm: 40 } }}>
-                <SupportAgent sx={{ fontSize: { xs: 20, sm: 24 } }} />
+              <Avatar
+                src={adminProfile.avatar_url}
+                sx={{
+                  bgcolor: 'white',
+                  color: '#0084ff',
+                  width: { xs: 40, sm: 44 },
+                  height: { xs: 40, sm: 44 },
+                  fontSize: '1.2rem',
+                  fontWeight: 'bold',
+                  border: '2px solid white'
+                }}
+              >
+                {!adminProfile.avatar_url && (
+                  adminProfile.full_name && adminProfile.full_name !== 'TeleShop Support'
+                    ? adminProfile.full_name.charAt(0).toUpperCase()
+                    : <SupportAgent sx={{ fontSize: { xs: 22, sm: 24 } }} />
+                )}
               </Avatar>
               <Box>
                 <Typography variant="subtitle1" fontWeight={700} fontSize={{ xs: '0.9rem', sm: '1rem' }}>
-                  TeleShop Support
+                  {adminProfile.full_name}
                 </Typography>
                 <Stack direction="row" spacing={0.5} alignItems="center">
-                  <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: connected ? '#22c55e' : '#ef4444' }} />
-                  <Typography variant="caption">
+                  <Box sx={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    bgcolor: connected ? '#22c55e' : '#ef4444',
+                    border: '1px solid white'
+                  }} />
+                  <Typography variant="caption" sx={{ opacity: 0.9 }}>
                     {connected ? 'Online' : 'Offline'}
                   </Typography>
+                  {adminProfile.role && (
+                    <Typography variant="caption" sx={{ opacity: 0.7, ml: 0.5 }}>
+                      • {adminProfile.role}
+                    </Typography>
+                  )}
                 </Stack>
               </Box>
             </Stack>
@@ -1061,7 +1185,8 @@ const ChatSupport = () => {
           <Stack spacing={1}>
             {messages.map((m, i) => {
               const isMine = m.from === 'user';
-              
+              const isAdmin = m.from === 'admin';
+
               return (
                 <Box
                   key={m.id || i}
@@ -1074,35 +1199,48 @@ const ChatSupport = () => {
                     '&:hover .msg-actions': { opacity: 1, visibility: 'visible' }
                   }}
                 >
-                  {(m.from === 'support' || m.from === 'admin') && (
-                    <Avatar sx={{
-                      width: 32,
-                      height: 32,
-                      mr: 1,
-                      mt: 'auto',
-                      bgcolor: m.from === 'admin' ? '#42b72a' : '#0084ff',
-                      flexShrink: 0,
-                      fontSize: '0.8rem',
-                      fontWeight: 'bold',
-                    }}>
-                      {m.adminName ? m.adminName.charAt(0).toUpperCase() : <SupportAgent sx={{ fontSize: 16 }} />}
+                  {/* Admin/Support Avatar - ALWAYS SHOW for non-user messages */}
+                  {!isMine && (
+                    <Avatar
+                      src={m.adminAvatar || adminProfile.avatar_url}
+                      sx={{
+                        width: 32,
+                        height: 32,
+                        mr: 1,
+                        mt: 'auto',
+                        bgcolor: isAdmin ? '#42b72a' : '#0084ff',
+                        flexShrink: 0,
+                        fontSize: '0.8rem',
+                        fontWeight: 'bold',
+                        border: '2px solid white',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                      }}
+                    >
+                      {!(m.adminAvatar || adminProfile.avatar_url) && (
+                        m.adminName
+                          ? m.adminName.charAt(0).toUpperCase()
+                          : adminProfile.full_name && adminProfile.full_name !== 'TeleShop Support'
+                            ? adminProfile.full_name.charAt(0).toUpperCase()
+                            : <SupportAgent sx={{ fontSize: 16 }} />
+                      )}
                     </Avatar>
                   )}
-                  
+
                   <Box sx={{ maxWidth: '70%', position: 'relative' }}>
-                    {!isMine && m.adminName && (
+                    {/* Admin Name - ALWAYS SHOW for admin messages */}
+                    {!isMine && (m.adminName || adminProfile.full_name) && (
                       <Typography
                         variant="caption"
                         sx={{
-                          color: 'text.secondary',
-                          fontWeight: 'bold',
-                          mr: 1,
+                          color: '#65676b',
+                          fontWeight: 600,
                           ml: 1,
-                          mb: 0.5,
-                          display: 'block'
+                          mb: 0.3,
+                          display: 'block',
+                          fontSize: '0.75rem'
                         }}
                       >
-                        {m.adminName}
+                        {m.adminName || adminProfile.full_name}
                       </Typography>
                     )}
 
@@ -1325,8 +1463,22 @@ const ChatSupport = () => {
             {/* Typing Indicator */}
             {isAdminTyping && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 1, mt: 1 }}>
-                <Avatar sx={{ width: 24, height: 24, bgcolor: '#42b72a' }}>
-                  <SupportAgent sx={{ fontSize: 14 }} />
+                <Avatar
+                  src={adminProfile.avatar_url}
+                  sx={{
+                    width: 28,
+                    height: 28,
+                    bgcolor: '#42b72a',
+                    fontSize: '0.7rem',
+                    border: '2px solid white',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                  }}
+                >
+                  {!adminProfile.avatar_url && (
+                    adminProfile.full_name && adminProfile.full_name !== 'TeleShop Support'
+                      ? adminProfile.full_name.charAt(0).toUpperCase()
+                      : <SupportAgent sx={{ fontSize: 14 }} />
+                  )}
                 </Avatar>
                 <Box sx={{
                   display: 'flex',
@@ -1337,7 +1489,9 @@ const ChatSupport = () => {
                   py: 1,
                   borderRadius: 2
                 }}>
-                  <Typography variant="caption" color="text.secondary">Admin is typing</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {adminProfile.full_name} is typing
+                  </Typography>
                   <Box sx={{ display: 'flex', gap: 0.3 }}>
                     <Box sx={{
                       width: 4,
