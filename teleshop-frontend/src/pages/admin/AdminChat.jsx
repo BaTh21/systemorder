@@ -94,6 +94,12 @@ const AdminChat = () => {
   const audioRef = useRef(new Audio());
   const [playingAudio, setPlayingAudio] = useState(null);
 
+  // ULTRA-FAST INPUT REFS
+  const inputRef = useRef(null);
+  const isTypingRef = useRef(false);
+  const typingTimerRef = useRef(null);
+  const inputValueRef = useRef('');
+
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -105,7 +111,7 @@ const AdminChat = () => {
 
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
-  // Load admin profile from user data
+  // Load admin profile
   useEffect(() => {
     if (user) {
       setAdminProfile({
@@ -174,14 +180,12 @@ const AdminChat = () => {
     }
   }, [activeChat, customers]);
 
-  // Auto-scroll to bottom when messages change
   useEffect(() => {
     if (shouldAutoScrollRef.current) {
       scrollToBottom();
     }
   }, [messages]);
 
-  // Handle scroll to detect if user scrolled up
   const handleScroll = () => {
     if (messagesContainerRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
@@ -256,7 +260,7 @@ const AdminChat = () => {
                 clearTimeout(typingTimeoutRef.current);
                 typingTimeoutRef.current = setTimeout(() => {
                   setIsCustomerTyping(false);
-                }, 3000);
+                }, 1500);
               }
             }
             return;
@@ -466,12 +470,10 @@ const AdminChat = () => {
     }
   };
 
-  // Update the useEffect to fetch from API
   useEffect(() => {
     fetchAdminProfile();
   }, [user]);
 
-  // Also fetch when component mounts
   useEffect(() => {
     fetchAdminProfile();
   }, []);
@@ -487,7 +489,6 @@ const AdminChat = () => {
       const res = await api.get(`/chat/customer-profile-by-user/${userId}`);
       console.log('📋 Customer profile from API:', res.data);
 
-      // Check if response is admin - if so, use fallback
       if (res.data && res.data.is_admin) {
         console.log('⚠️ API returned admin data, using fallback');
         setCustomerProfile(fallbackProfile);
@@ -509,7 +510,6 @@ const AdminChat = () => {
       setCustomerProfile(profile);
     } catch (e) {
       console.error('❌ Failed to load customer profile:', e);
-      // Use fallback on error
       setCustomerProfile(fallbackProfile);
     }
   };
@@ -547,24 +547,9 @@ const AdminChat = () => {
     setTimeout(() => scrollToBottom(), 200);
   };
 
-  const handleTyping = (isTyping) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN && activeChat) {
-      wsRef.current.send(JSON.stringify({
-        type: 'typing',
-        is_typing: isTyping,
-        session_id: activeChat,
-        admin_name: user?.full_name || 'Admin'
-      }));
-    }
-  };
-
-  const handleSend = async () => {
-    if (!input.trim() || !activeChat) return;
-    const txt = input.trim();
-    setInput('');
+  // ULTRA-FAST SEND FUNCTION
+  const sendAdminMessage = async (txt) => {
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    handleTyping(false);
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
@@ -607,7 +592,6 @@ const AdminChat = () => {
       } catch (e) {
         console.error('Send failed:', e);
         setSnackbar({ open: true, message: 'Failed to send message', severity: 'error' });
-        setInput(txt);
       }
     }
     loadSessions();
@@ -943,7 +927,6 @@ const AdminChat = () => {
               Dashboard
             </Button>
             <Stack direction="row" spacing={1} alignItems="center">
-              {/* Admin Avatar in Header */}
               <Tooltip title="Edit Profile">
                 <Avatar
                   src={adminProfile.avatar_url}
@@ -1240,7 +1223,6 @@ const AdminChat = () => {
                   </Badge>
                 </Box>
               </Stack>
-              
             </Box>
 
             {/* Messages */}
@@ -1418,7 +1400,7 @@ const AdminChat = () => {
                         </Box>
                       </Box>
 
-                      {/* Admin Avatar - UPDATED with admin profile */}
+                      {/* Admin Avatar */}
                       {m.from === 'admin' && (
                         <Avatar
                           src={adminProfile.avatar_url}
@@ -1466,7 +1448,7 @@ const AdminChat = () => {
               )}
             </Box>
 
-            {/* Input Area */}
+            {/* ULTRA-FAST Input Area */}
             <Box sx={{ px: { xs: 1, sm: 2 }, pb: { xs: 1, sm: 1.5 }, pt: 1, bgcolor: 'white', flexShrink: 0, borderTop: '1px solid #e4e6eb', minHeight: { xs: 56, sm: 64 } }}>
               {isRecording && (
                 <Box sx={{ textAlign: 'center', mb: 1 }}>
@@ -1482,28 +1464,158 @@ const AdminChat = () => {
                 <IconButton size="small" onClick={() => fileInputRef.current?.click()} sx={{ color: '#65676b' }}>
                   <AttachFile sx={{ fontSize: { xs: 20, sm: 22 } }} />
                 </IconButton>
+                
+                {/* ULTRA-FAST INPUT - No React state on keystroke */}
                 <Box sx={{ flex: 1, bgcolor: '#f0f2f5', borderRadius: 50, px: 1.5 }}>
-                  <TextField
-                    fullWidth multiline maxRows={4} size="small" placeholder="Aa" value={input}
-                    onChange={(e) => {
-                      setInput(e.target.value);
-                      if (e.target.value.length > 0) {
-                        handleTyping(true);
-                        clearTimeout(typingTimeoutRef.current);
-                        typingTimeoutRef.current = setTimeout(() => { handleTyping(false); }, 2000);
-                      } else { handleTyping(false); }
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    placeholder="Aa"
+                    defaultValue=""
+                    onInput={(e) => {
+                      const value = e.target.value;
+                      inputValueRef.current = value;
+                      
+                      // IMMEDIATE typing indicator - no delay
+                      if (value.length > 0 && activeChat && !isTypingRef.current) {
+                        isTypingRef.current = true;
+                        if (wsRef.current?.readyState === WebSocket.OPEN) {
+                          wsRef.current.send(JSON.stringify({
+                            type: 'typing',
+                            is_typing: true,
+                            session_id: activeChat,
+                            admin_name: user?.full_name || 'Admin'
+                          }));
+                        }
+                      }
+                      
+                      // Reset typing timer
+                      if (typingTimerRef.current) {
+                        clearTimeout(typingTimerRef.current);
+                      }
+                      
+                      // Stop typing after 500ms of no input
+                      typingTimerRef.current = setTimeout(() => {
+                        if (isTypingRef.current) {
+                          isTypingRef.current = false;
+                          if (wsRef.current?.readyState === WebSocket.OPEN && activeChat) {
+                            wsRef.current.send(JSON.stringify({
+                              type: 'typing',
+                              is_typing: false,
+                              session_id: activeChat,
+                              admin_name: user?.full_name || 'Admin'
+                            }));
+                          }
+                        }
+                        typingTimerRef.current = null;
+                      }, 500);
+                      
+                      // Stop typing immediately if input becomes empty
+                      if (value.length === 0 && isTypingRef.current) {
+                        isTypingRef.current = false;
+                        if (wsRef.current?.readyState === WebSocket.OPEN && activeChat) {
+                          wsRef.current.send(JSON.stringify({
+                            type: 'typing',
+                            is_typing: false,
+                            session_id: activeChat,
+                            admin_name: user?.full_name || 'Admin'
+                          }));
+                        }
+                        if (typingTimerRef.current) {
+                          clearTimeout(typingTimerRef.current);
+                          typingTimerRef.current = null;
+                        }
+                      }
                     }}
-                    onKeyPress={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                    variant="standard"
-                    InputProps={{ disableUnderline: true, sx: { fontSize: { xs: '0.8rem', sm: '0.9rem' } } }}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        const value = inputValueRef.current.trim();
+                        if (value && activeChat) {
+                          // Clear typing state
+                          if (isTypingRef.current) {
+                            isTypingRef.current = false;
+                            if (wsRef.current?.readyState === WebSocket.OPEN && activeChat) {
+                              wsRef.current.send(JSON.stringify({
+                                type: 'typing',
+                                is_typing: false,
+                                session_id: activeChat,
+                                admin_name: user?.full_name || 'Admin'
+                              }));
+                            }
+                          }
+                          if (typingTimerRef.current) {
+                            clearTimeout(typingTimerRef.current);
+                            typingTimerRef.current = null;
+                          }
+                          // Send message
+                          sendAdminMessage(value);
+                          // Clear input
+                          if (inputRef.current) {
+                            inputRef.current.value = '';
+                            inputValueRef.current = '';
+                            setInput('');
+                          }
+                        }
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '8px 0',
+                      fontSize: window.innerWidth < 600 ? '0.8rem' : '0.9rem',
+                      border: 'none',
+                      outline: 'none',
+                      background: 'transparent',
+                      fontFamily: 'inherit',
+                      resize: 'none',
+                      minHeight: '24px',
+                      maxHeight: '80px',
+                      overflow: 'auto'
+                    }}
                   />
                 </Box>
+
                 {input.trim() ? (
-                  <IconButton onClick={handleSend} sx={{ color: '#1877f2' }}>
+                  <IconButton
+                    onClick={() => {
+                      const value = inputValueRef.current.trim();
+                      if (value && activeChat) {
+                        // Clear typing state
+                        if (isTypingRef.current) {
+                          isTypingRef.current = false;
+                          if (wsRef.current?.readyState === WebSocket.OPEN && activeChat) {
+                            wsRef.current.send(JSON.stringify({
+                              type: 'typing',
+                              is_typing: false,
+                              session_id: activeChat,
+                              admin_name: user?.full_name || 'Admin'
+                            }));
+                          }
+                        }
+                        if (typingTimerRef.current) {
+                          clearTimeout(typingTimerRef.current);
+                          typingTimerRef.current = null;
+                        }
+                        sendAdminMessage(value);
+                        if (inputRef.current) {
+                          inputRef.current.value = '';
+                          inputValueRef.current = '';
+                          setInput('');
+                        }
+                      }
+                    }}
+                    sx={{ color: '#1877f2' }}
+                  >
                     <Send sx={{ fontSize: { xs: 20, sm: 22 } }} />
                   </IconButton>
                 ) : (
-                  <IconButton onMouseDown={startRecording} onMouseUp={stopRecording} onTouchStart={startRecording} onTouchEnd={stopRecording} sx={{ color: '#1877f2' }}>
+                  <IconButton
+                    onMouseDown={startRecording}
+                    onMouseUp={stopRecording}
+                    onTouchStart={startRecording}
+                    onTouchEnd={stopRecording}
+                    sx={{ color: '#1877f2' }}
+                  >
                     {isRecording ? <Stop sx={{ fontSize: { xs: 20, sm: 22 }, color: '#ef4444' }} /> : <Mic sx={{ fontSize: { xs: 20, sm: 22 } }} />}
                   </IconButton>
                 )}

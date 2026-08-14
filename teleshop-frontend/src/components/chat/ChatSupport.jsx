@@ -46,7 +46,6 @@ const ChatSupport = () => {
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
   const [connected, setConnected] = useState(false);
   const [viewer, setViewer] = useState({ open: false, imageUrl: '', fileData: null, messageId: null });
   const [unreadCount, setUnreadCount] = useState(0);
@@ -54,7 +53,6 @@ const ChatSupport = () => {
   const [isAdminTyping, setIsAdminTyping] = useState(false);
   const [imagePreview, setImagePreview] = useState({ open: false, url: '' });
 
-  // Admin profile state - matches backend response
   const [adminProfile, setAdminProfile] = useState({
     full_name: 'TeleShop Support',
     username: 'support',
@@ -94,6 +92,13 @@ const ChatSupport = () => {
   const [emojiPickerId, setEmojiPickerId] = useState(null);
   const [imageErrors, setImageErrors] = useState({});
 
+  // ULTRA-FAST INPUT REFS
+  const inputRef = useRef(null);
+  const isTypingRef = useRef(false);
+  const typingTimerRef = useRef(null);
+  const inputValueRef = useRef('');
+  const [input, setInput] = useState('');
+
   const wsRef = useRef(null);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
@@ -102,7 +107,7 @@ const ChatSupport = () => {
   const customerName = getCustomerDisplayName(user);
   const customerEmail = getCustomerEmail(user);
 
-  // Fetch admin profile from API
+  // Fetch admin profile
   const fetchAdminProfile = async () => {
     try {
       const response = await api.get('/chat/admin-profile');
@@ -134,7 +139,6 @@ const ChatSupport = () => {
     }
   };
 
-  // Update session ID when user logs in
   useEffect(() => {
     if (user?.id) {
       setSessionId(`user_${user.id}`);
@@ -142,7 +146,6 @@ const ChatSupport = () => {
     }
   }, [user?.id]);
 
-  // Fetch admin profile when drawer opens
   useEffect(() => {
     if (open) {
       fetchAdminProfile();
@@ -178,7 +181,6 @@ const ChatSupport = () => {
         const d = JSON.parse(e.data);
         console.log('📩 WebSocket message:', d);
 
-        // Handle typing indicators
         if (d.type === 'typing') {
           if (d.sender === 'admin') {
             setIsAdminTyping(d.is_typing);
@@ -186,13 +188,12 @@ const ChatSupport = () => {
               clearTimeout(typingTimeoutRef.current);
               typingTimeoutRef.current = setTimeout(() => {
                 setIsAdminTyping(false);
-              }, 3000);
+              }, 1500);
             }
           }
           return;
         }
 
-        // Handle admin info
         if (d.type === 'admin_info') {
           console.log('👤 Admin info received via WebSocket:', d);
           const profileData = {
@@ -209,9 +210,7 @@ const ChatSupport = () => {
           return;
         }
 
-        // ADMIN REPLY - Real time
         if (d.type === 'admin_reply') {
-          // Update admin profile from message if we get new info
           if (d.admin_name || d.admin_avatar) {
             setAdminProfile(prev => {
               const updated = {
@@ -265,7 +264,6 @@ const ChatSupport = () => {
               messageData.text = '';
             }
 
-            console.log('👤 Adding admin message:', messageData);
             return [...prev, messageData];
           });
 
@@ -277,7 +275,6 @@ const ChatSupport = () => {
             messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
           }, 100);
         }
-        // MESSAGE SENT confirmation
         else if (d.type === 'message_sent') {
           setMessages(prev => {
             if (d.message_id && prev.find(m => m.id === d.message_id)) return prev;
@@ -296,17 +293,14 @@ const ChatSupport = () => {
             }];
           });
         }
-        // MESSAGE EDITED
         else if (d.type === 'message_edited') {
           setMessages(prev => prev.map(m =>
             m.id === d.message_id ? { ...m, text: d.new_message, content: d.new_message, isEdited: true } : m
           ));
         }
-        // MESSAGE DELETED
         else if (d.type === 'message_deleted') {
           setMessages(prev => prev.filter(m => m.id !== d.message_id));
         }
-        // REACTION
         else if (d.type === 'message_reaction') {
           setMessages(prev => prev.map(m => {
             if (m.id === d.message_id) {
@@ -336,7 +330,6 @@ const ChatSupport = () => {
             return m;
           }));
         }
-        // SESSION DELETED
         else if (d.type === 'session_deleted') {
           setMessages(prev => [...prev, {
             id: 'system_' + Date.now(),
@@ -372,17 +365,14 @@ const ChatSupport = () => {
     };
   }, [token, sessionId]);
 
-  // Load history when drawer opens
   useEffect(() => {
     if (open) loadHistory();
   }, [open, sessionId]);
 
-  // Update admin online status
   useEffect(() => {
     setAdminProfile(prev => ({ ...prev, is_online: connected }));
   }, [connected]);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -393,7 +383,6 @@ const ChatSupport = () => {
       if (res.data?.length) {
         console.log('📜 Loading chat history:', res.data);
 
-        // Get admin info from first admin message
         const adminMsg = res.data.find(m => m.is_admin_reply);
         if (adminMsg) {
           console.log('👤 Found admin message in history:', adminMsg);
@@ -485,12 +474,9 @@ const ChatSupport = () => {
     }
   };
 
-  const send = async () => {
-    if (!input.trim()) return;
-    const txt = input; setInput('');
+  // ULTRA-FAST SEND FUNCTION
+  const sendMessage = async (txt) => {
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    handleTyping(false);
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
@@ -526,15 +512,11 @@ const ChatSupport = () => {
     }
   };
 
-  const handleTyping = (isTyping) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'typing',
-        is_typing: isTyping,
-        session_id: sessionId,
-        sender_name: customerName
-      }));
-    }
+  // Keep original send for compatibility
+  const send = async () => {
+    if (!input.trim()) return;
+    sendMessage(input.trim());
+    setInput('');
   };
 
   const handleReaction = async (msgId, emoji) => {
@@ -806,7 +788,6 @@ const ChatSupport = () => {
     setIsAdminTyping(false);
   };
 
-  // Render message content based on type
   const renderMessageContent = (m) => {
     const isMine = m.from === 'user';
 
@@ -1129,7 +1110,7 @@ const ChatSupport = () => {
           }
         }}
       >
-        {/* Header with Admin Profile */}
+        {/* Header */}
         <Box sx={{ bgcolor: '#0084ff', color: 'white', p: { xs: 1.5, sm: 2 } }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Stack direction="row" spacing={1.5} alignItems="center">
@@ -1199,7 +1180,6 @@ const ChatSupport = () => {
                     '&:hover .msg-actions': { opacity: 1, visibility: 'visible' }
                   }}
                 >
-                  {/* Admin/Support Avatar - ALWAYS SHOW for non-user messages */}
                   {!isMine && (
                     <Avatar
                       src={m.adminAvatar || adminProfile.avatar_url}
@@ -1227,7 +1207,6 @@ const ChatSupport = () => {
                   )}
 
                   <Box sx={{ maxWidth: '70%', position: 'relative' }}>
-                    {/* Admin Name - ALWAYS SHOW for admin messages */}
                     {!isMine && (m.adminName || adminProfile.full_name) && (
                       <Typography
                         variant="caption"
@@ -1244,7 +1223,6 @@ const ChatSupport = () => {
                       </Typography>
                     )}
 
-                    {/* Message Actions */}
                     <Box className="msg-actions" sx={{
                       position: 'absolute',
                       top: -36,
@@ -1304,7 +1282,6 @@ const ChatSupport = () => {
                       </IconButton>
                     </Box>
 
-                    {/* Emoji Picker */}
                     {emojiPickerId === m.id && (
                       <Box sx={{ position: 'absolute', bottom: 40, right: 0, zIndex: 1000 }}>
                         <Box sx={{ position: 'relative' }}>
@@ -1329,7 +1306,6 @@ const ChatSupport = () => {
                       </Box>
                     )}
 
-                    {/* Message Content */}
                     {editingMessageId === m.id ? (
                       <Box sx={{
                         display: 'flex',
@@ -1386,7 +1362,6 @@ const ChatSupport = () => {
                       </Box>
                     )}
 
-                    {/* Reactions Display */}
                     {m.reactions?.length > 0 && (
                       <Box sx={{
                         display: 'flex',
@@ -1427,7 +1402,6 @@ const ChatSupport = () => {
                       </Box>
                     )}
 
-                    {/* Time and Status */}
                     <Box sx={{
                       display: 'flex',
                       justifyContent: isMine ? 'flex-end' : 'flex-start',
@@ -1460,7 +1434,6 @@ const ChatSupport = () => {
               );
             })}
 
-            {/* Typing Indicator */}
             {isAdminTyping && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 1, mt: 1 }}>
                 <Avatar
@@ -1525,14 +1498,19 @@ const ChatSupport = () => {
             <div ref={messagesEndRef} />
           </Stack>
 
-          {/* Quick Replies */}
           <Stack direction="row" flexWrap="wrap" gap={0.5} mt={2}>
             {quick.map(q => (
               <Chip
                 key={q}
                 label={q}
                 size="small"
-                onClick={() => { setInput(q); setTimeout(send, 100); }}
+                onClick={() => {
+                  if (inputRef.current) {
+                    inputRef.current.value = q;
+                    inputValueRef.current = q;
+                    setInput(q);
+                  }
+                }}
                 sx={{
                   cursor: 'pointer',
                   bgcolor: 'white',
@@ -1546,7 +1524,7 @@ const ChatSupport = () => {
           </Stack>
         </Box>
 
-        {/* Input Area */}
+        {/* ULTRA-FAST Input Area */}
         <Box sx={{ p: { xs: 1.5, sm: 2 }, borderTop: '1px solid #e2e8f0', bgcolor: 'white' }}>
           {isRecording && (
             <Box sx={{ textAlign: 'center', mb: 1 }}>
@@ -1576,37 +1554,146 @@ const ChatSupport = () => {
             >
               <AttachFile fontSize="small" />
             </IconButton>
+            
+            {/* ULTRA-FAST INPUT - No React state on keystroke */}
             <Box sx={{ flex: 1, bgcolor: '#f0f2f5', borderRadius: 50, px: { xs: 1.5, sm: 2 }, py: 0.3 }}>
-              <TextField
-                fullWidth
-                size="small"
+              <input
+                ref={inputRef}
+                type="text"
                 placeholder="Aa..."
-                value={input}
-                onChange={(e) => {
-                  setInput(e.target.value);
-                  if (e.target.value.length > 0) {
-                    handleTyping(true);
-                    clearTimeout(typingTimeoutRef.current);
-                    typingTimeoutRef.current = setTimeout(() => {
-                      handleTyping(false);
-                    }, 2000);
-                  } else {
-                    handleTyping(false);
+                defaultValue=""
+                onInput={(e) => {
+                  const value = e.target.value;
+                  inputValueRef.current = value;
+                  
+                  // IMMEDIATE typing indicator - no delay
+                  if (value.length > 0 && !isTypingRef.current) {
+                    isTypingRef.current = true;
+                    if (wsRef.current?.readyState === WebSocket.OPEN) {
+                      wsRef.current.send(JSON.stringify({
+                        type: 'typing',
+                        is_typing: true,
+                        session_id: sessionId,
+                        sender_name: customerName
+                      }));
+                    }
+                  }
+                  
+                  // Reset typing timer
+                  if (typingTimerRef.current) {
+                    clearTimeout(typingTimerRef.current);
+                  }
+                  
+                  // Stop typing after 500ms of no input
+                  typingTimerRef.current = setTimeout(() => {
+                    if (isTypingRef.current) {
+                      isTypingRef.current = false;
+                      if (wsRef.current?.readyState === WebSocket.OPEN) {
+                        wsRef.current.send(JSON.stringify({
+                          type: 'typing',
+                          is_typing: false,
+                          session_id: sessionId,
+                          sender_name: customerName
+                        }));
+                      }
+                    }
+                    typingTimerRef.current = null;
+                  }, 500);
+                  
+                  // Stop typing immediately if input becomes empty
+                  if (value.length === 0 && isTypingRef.current) {
+                    isTypingRef.current = false;
+                    if (wsRef.current?.readyState === WebSocket.OPEN) {
+                      wsRef.current.send(JSON.stringify({
+                        type: 'typing',
+                        is_typing: false,
+                        session_id: sessionId,
+                        sender_name: customerName
+                      }));
+                    }
+                    if (typingTimerRef.current) {
+                      clearTimeout(typingTimerRef.current);
+                      typingTimerRef.current = null;
+                    }
                   }
                 }}
-                onKeyPress={e => { if (e.key === 'Enter') { e.preventDefault(); send(); } }}
-                variant="standard"
-                multiline
-                maxRows={4}
-                InputProps={{
-                  disableUnderline: true,
-                  sx: { fontSize: { xs: '0.8rem', sm: '0.85rem' } }
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const value = inputValueRef.current.trim();
+                    if (value) {
+                      // Clear typing state
+                      if (isTypingRef.current) {
+                        isTypingRef.current = false;
+                        if (wsRef.current?.readyState === WebSocket.OPEN) {
+                          wsRef.current.send(JSON.stringify({
+                            type: 'typing',
+                            is_typing: false,
+                            session_id: sessionId,
+                            sender_name: customerName
+                          }));
+                        }
+                      }
+                      if (typingTimerRef.current) {
+                        clearTimeout(typingTimerRef.current);
+                        typingTimerRef.current = null;
+                      }
+                      // Send message
+                      sendMessage(value);
+                      // Clear input
+                      if (inputRef.current) {
+                        inputRef.current.value = '';
+                        inputValueRef.current = '';
+                        setInput('');
+                      }
+                    }
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: '8px 0',
+                  fontSize: window.innerWidth < 600 ? '0.8rem' : '0.85rem',
+                  border: 'none',
+                  outline: 'none',
+                  background: 'transparent',
+                  fontFamily: 'inherit',
+                  resize: 'none',
+                  minHeight: '24px',
+                  maxHeight: '80px',
+                  overflow: 'auto'
                 }}
               />
             </Box>
+
             {input.trim() ? (
               <IconButton
-                onClick={send}
+                onClick={() => {
+                  const value = inputValueRef.current.trim();
+                  if (value) {
+                    // Clear typing state
+                    if (isTypingRef.current) {
+                      isTypingRef.current = false;
+                      if (wsRef.current?.readyState === WebSocket.OPEN) {
+                        wsRef.current.send(JSON.stringify({
+                          type: 'typing',
+                          is_typing: false,
+                          session_id: sessionId,
+                          sender_name: customerName
+                        }));
+                      }
+                    }
+                    if (typingTimerRef.current) {
+                      clearTimeout(typingTimerRef.current);
+                      typingTimerRef.current = null;
+                    }
+                    sendMessage(value);
+                    if (inputRef.current) {
+                      inputRef.current.value = '';
+                      inputValueRef.current = '';
+                      setInput('');
+                    }
+                  }
+                }}
                 sx={{
                   bgcolor: '#0084ff',
                   color: 'white',
