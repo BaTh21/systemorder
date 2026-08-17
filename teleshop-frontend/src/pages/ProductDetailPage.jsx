@@ -333,15 +333,6 @@ const ProductDetailPage = () => {
                   >
                     {product.stock === 0 ? 'Out of Stock' : 'Add to Cart'}
                   </Button>
-                  <IconButton
-                    sx={{
-                      border: '1px solid #e2e8f0',
-                      borderRadius: 2,
-                      '&:hover': { bgcolor: '#f1f5f9' },
-                    }}
-                  >
-                    <Share fontSize="small" />
-                  </IconButton>
                 </Box>
 
                 {product.stock === 0 && (
